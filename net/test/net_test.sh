@@ -11,10 +11,13 @@ ip link set eth0 up
 # Allow people to run ping.
 echo "0 65536" > /proc/sys/net/ipv4/ping_group_range
 
-# Fall out to a shell once the test completes or if there's an error.
-trap "exec /bin/bash" ERR EXIT
+# Read environment variables passed to the kernel to determine if script is
+# running on builder and to find which test to run.
 
-# Find and run the test.
-test=$(cat /proc/cmdline | sed -re 's/.*net_test=([^ ]*).*/\1/g')
-echo -e "Running $test\n"
-$test
+if [ "$net_test_mode" != "builder" ]; then
+  # Fall out to a shell once the test completes or if there's an error.
+  trap "exec /bin/bash" ERR EXIT
+fi
+
+echo -e "Running $net_test\n"
+$net_test

@@ -42,6 +42,14 @@ if [ -z "$1" ]; then
   echo "Usage: $0 <test>" >&2
   exit 1
 fi
+
+consolemode=
+testmode=
+if [ "$1" = "--builder" ]; then
+  consolemode="con=null,fd:1"
+  testmode=builder
+  shift
+fi
 test=$1
 
 set -e
@@ -122,4 +130,4 @@ dir=/host$(dirname $(readlink -f $0))
 # Start the VM.
 exec $KERNEL_BINARY umid=net_test ubda=$(dirname $0)/$ROOTFS \
     mem=512M init=/sbin/net_test.sh net_test=$dir/$test \
-    $netconfig
+    net_test_mode=$testmode $netconfig $consolemode
