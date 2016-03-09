@@ -21,6 +21,7 @@ import os
 import posix
 import random
 from socket import *  # pylint: disable=wildcard-import
+import struct
 import threading
 import time
 import unittest
@@ -38,6 +39,9 @@ ICMP_ECHO = 8
 ICMP_ECHOREPLY = 0
 ICMPV6_ECHO_REQUEST = 128
 ICMPV6_ECHO_REPLY = 129
+IPV6_MIN_MTU = 1280
+ICMPV6_HEADER_LEN = 8
+ICMPV6_PKT_TOOBIG = 2
 
 
 class PingReplyThread(threading.Thread):
@@ -46,6 +50,7 @@ class PingReplyThread(threading.Thread):
   INTERMEDIATE_IPV4 = "192.0.2.2"
   INTERMEDIATE_IPV6 = "2001:db8:1:2::ace:d00d"
   NEIGHBOURS = ["fe80::1"]
+  LINK_MTU = 1300
 
   def __init__(self, tun, mymac, routermac):
     super(PingReplyThread, self).__init__()
@@ -105,6 +110,14 @@ class PingReplyThread(threading.Thread):
           scapy.ICMPv6TimeExceeded(code=0) /
           packet)
 
+  def SendPacketTooBig(self, packet):
+      src = packet.getlayer(scapy.IPv6).src
+      datalen = IPV6_MIN_MTU - ICMPV6_HEADER_LEN
+      self.SendPacket(
+          scapy.IPv6(src=self.INTERMEDIATE_IPV6, dst=src) /
+          scapy.ICMPv6PacketTooBig(mtu=self.LINK_MTU) /
+          str(packet)[:datalen])
+
   def IPv4Packet(self, ip):
     icmp = ip.getlayer(scapy.ICMP)
 
@@ -148,6 +161,8 @@ class PingReplyThread(threading.Thread):
         self.SendPacket(ipv6)
     elif ipv6.hlim < self.MIN_TTL:
       self.SendTimeExceeded(6, ipv6)
+    elif ipv6.plen > self.LINK_MTU:
+      self.SendPacketTooBig(ipv6)
     else:
       icmpv6.type = ICMPV6_ECHO_REPLY
       self.SwapAddresses(ipv6)
@@ -703,6 +718,45 @@ class Ping6Test(multinetwork_base.MultiNetworkBaseTest):
     s.bind(("::1", 0xace))
     s.connect(("::1", 0xbeef))
     self.CheckSockStatFile("raw6", "::1", 0xff, "::1", 0, 1)
+
+  @unittest.skipUnless(net_test.LINUX_VERSION >= (4, 7, 0), "Not yet fixed")
+  def testIPv6MTU(self):
+    """Tests IPV6_RECVERR and path MTU discovery on ping sockets.
+
+    Relevant kernel commits:
+      upstream net-next:
+        dcb94b8 ipv6: fix endianness error in icmpv6_err
+    """
+    s = net_test.IPv6PingSocket()
+    s.setsockopt(net_test.SOL_IPV6, csocket.IPV6_DONTFRAG, 1)
+    s.setsockopt(net_test.SOL_IPV6, csocket.IPV6_MTU_DISCOVER, 2)
+    s.setsockopt(net_test.SOL_IPV6, net_test.IPV6_RECVERR, 1)
+    s.connect((net_test.IPV6_ADDR, 55))
+    pkt = net_test.IPV6_PING + (PingReplyThread.LINK_MTU + 100) * "a"
+    s.send(pkt)
+    self.assertRaisesErrno(errno.EMSGSIZE, s.recv, 32768)
+    data, addr, cmsg = csocket.Recvmsg(s, 4096, 1024, csocket.MSG_ERRQUEUE)
+
+    # Compare the offending packet with the one we sent. To do this we need to
+    # calculate the ident of the packet we sent and blank out the checksum of
+    # the one we received.
+    ident = struct.pack("!H", s.getsockname()[1])
+    pkt = pkt[:4] + ident + pkt[6:]
+    data = data[:2] + "\x00\x00" + pkt[4:]
+    self.assertEquals(pkt, data)
+
+    # Check the address that the packet was sent to.
+    self.assertEquals(csocket.Sockaddr(("2001:4860:4860::8888", 0)), addr)
+
+    # Check the cmsg data, including the link MTU.
+    msglist = [
+        (net_test.SOL_IPV6, net_test.IPV6_RECVERR,
+         (csocket.SockExtendedErr((errno.EMSGSIZE, csocket.SO_ORIGIN_ICMP6,
+                                   ICMPV6_PKT_TOOBIG, 0,
+                                   self.reply_thread.LINK_MTU, 0)),
+          csocket.Sockaddr((self.reply_thread.INTERMEDIATE_IPV6, 0))))
+    ]
+    self.assertEquals(msglist, cmsg)
 
 
 if __name__ == "__main__":
