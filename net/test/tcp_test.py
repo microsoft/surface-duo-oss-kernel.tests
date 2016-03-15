@@ -46,12 +46,12 @@ class TcpBaseTest(multinetwork_base.MultiNetworkBaseTest):
     super(TcpBaseTest, self).tearDown()
 
   def OpenListenSocket(self, version, netid):
-    self.port = packets.RandomPort()
     family = {4: AF_INET, 5: AF_INET6, 6: AF_INET6}[version]
     address = {4: "0.0.0.0", 5: "::", 6: "::"}[version]
     s = net_test.Socket(family, SOCK_STREAM, IPPROTO_TCP)
     s.setsockopt(SOL_SOCKET, SO_REUSEADDR, 1)
-    s.bind((address, self.port))
+    s.bind((address, 0))
+    self.port = s.getsockname()[1]
     # We haven't configured inbound iptables marking, so bind explicitly.
     self.SelectInterface(s, netid, "mark")
     s.listen(100)
