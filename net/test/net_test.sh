@@ -21,3 +21,7 @@ fi
 
 echo -e "Running $net_test\n"
 $net_test
+
+# Write exit code of net_test to /proc/exitcode so that the builder can use it
+# to signal failure if any tests fail.
+echo $? >/proc/exitcode
