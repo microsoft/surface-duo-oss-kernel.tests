@@ -465,11 +465,25 @@ class SockDestroyTcpTest(tcp_test.TcpBaseTest, SockDiagBaseTest):
 
       # Destroy the socket and expect no RST.
       self.CheckRstOnClose(None, diag_req, False, "Closing FIN_WAIT1 socket")
-      self.sock_diag.GetSockDiag(diag_req)
+      diag_msg = self.sock_diag.GetSockDiag(diag_req)
 
-      # The socket is still in FIN_WAIT1: SOCK_DESTROY did nothing because
-      # userspace had already closed it.
-      diag_msg = self.assertEquals(tcp_test.TCP_FIN_WAIT1, diag_msg.state)
+      # The socket is still there in FIN_WAIT1: SOCK_DESTROY did nothing
+      # because userspace had already closed it.
+      self.assertEquals(tcp_test.TCP_FIN_WAIT1, diag_msg.state)
+
+      # ACK the FIN so we don't trip over retransmits in future tests.
+      finversion = 4 if version == 5 else version
+      desc, finack = packets.ACK(finversion, self.remoteaddr, self.myaddr, fin)
+      diag_msg = self.sock_diag.GetSockDiag(diag_req)
+      self.ReceivePacketOn(self.netid, finack)
+
+      # See if we can find the resulting FIN_WAIT2 socket. This does not appear
+      # to work on 3.10.
+      if net_test.LINUX_VERSION >= (3, 18):
+        diag_req.states = 1 << tcp_test.TCP_FIN_WAIT2
+        diag_msg = self.sock_diag.FindSockDiagFromReq(diag_req)
+        self.assertEquals(tcp_test.TCP_FIN_WAIT2, diag_msg.state)
+
 
   def FindChildSockets(self, s):
     """Finds the SYN_RECV child sockets of a given listening socket."""
