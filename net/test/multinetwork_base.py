@@ -24,6 +24,7 @@ import random
 import re
 from socket import *  # pylint: disable=wildcard-import
 import struct
+import time
 
 from scapy import all as scapy
 
@@ -476,6 +477,8 @@ class MultiNetworkBaseTest(net_test.NetworkTest):
 
   def ReadAllPacketsOn(self, netid, include_multicast=False):
     packets = []
+    retries = 0
+    max_retries = 1
     while True:
       try:
         packet = posix.read(self.tuns[netid].fileno(), 4096)
@@ -489,7 +492,13 @@ class MultiNetworkBaseTest(net_test.NetworkTest):
       except OSError, e:
         # EAGAIN means there are no more packets waiting.
         if re.match(e.message, os.strerror(errno.EAGAIN)):
-          break
+          # If we didn't see any packets, try again for good luck.
+          if not packets and retries < max_retries:
+            time.sleep(0.01)
+            retries += 1
+            continue
+          else:
+            break
         # Anything else is unexpected.
         else:
           raise e
