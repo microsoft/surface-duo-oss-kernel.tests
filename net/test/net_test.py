@@ -320,6 +320,10 @@ except ValueError:
   HAVE_IPV6 = False
 
 
+CONTINUOUS_BUILD = re.search("net_test_mode=builder",
+                             open("/proc/cmdline").read())
+
+
 class RunAsUid(object):
   """Context guard to run a code block as a given UID."""
 
