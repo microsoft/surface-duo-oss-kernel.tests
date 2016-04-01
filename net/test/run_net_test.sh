@@ -19,6 +19,8 @@ OPTIONS="$OPTIONS DEVTMPFS DEVTMPFS_MOUNT"
 
 # These two break the flo kernel due to differences in -Werror on recent GCC.
 DISABLE_OPTIONS=" CONFIG_REISERFS_FS CONFIG_ANDROID_PMEM"
+# This one breaks the fugu kernel due to a nonexistent sem_wait_array.
+DISABLE_OPTIONS="$DISABLE_OPTIONS CONFIG_SYSVIPC"
 
 # How many TAP interfaces to create to provide the VM with real network access
 # via the host. This requires privileges (e.g., root access) on the host.
