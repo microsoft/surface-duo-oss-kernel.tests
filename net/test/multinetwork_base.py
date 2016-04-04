@@ -238,7 +238,7 @@ class MultiNetworkBaseTest(net_test.NetworkTest):
       # If no retrans timer was specified, pick one that's as long as the
       # router lifetime. This ensures that no spurious ND retransmits
       # will interfere with test expectations.
-      retranstimer = validity
+      retranstimer = validity * 1000  # Lifetime is in s, retrans timer in ms.
 
     # We don't want any routes in the main table. If the kernel doesn't support
     # putting RA routes into per-interface tables, configure routing manually.
