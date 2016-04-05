@@ -32,6 +32,11 @@ import net_test
 IPV6_ADDR_PREFERENCES = 72
 IPV6_PREFER_SRC_PUBLIC = 0x0002
 
+# The retrans timer is also the DAD timeout. We set this to a value that's not
+# so short that DAD will complete before we attempt to use the network, but
+# short enough that we don't have to wait too long for DAD to complete.
+RETRANS_TIMER = 150
+
 
 class IPv6SourceAddressSelectionTest(multinetwork_base.MultiNetworkBaseTest):
   """Test for IPv6 source address selection.
@@ -162,7 +167,7 @@ class TentativeAddressTest(MultiInterfaceSourceAddressSelectionTest):
     # [3]  Get an IPv6 address back, in DAD start-up.
     self.SetDAD(self.test_ifname, 1)  # Enable DAD
     # Send a RA to start SLAAC and subsequent DAD.
-    self.SendRA(self.test_netid, retranstimer=300)
+    self.SendRA(self.test_netid, retranstimer=RETRANS_TIMER)
     # Get flags and prove tentative-ness.
     self.assertAddressHasExpectedAttributes(
         self.test_ip, self.test_ifindex, iproute.IFA_F_TENTATIVE)
@@ -188,7 +193,7 @@ class OptimisticAddressTest(MultiInterfaceSourceAddressSelectionTest):
     self.SetDAD(self.test_ifname, 1)  # Enable DAD
     self.SetOptimisticDAD(self.test_ifname, 1)
     # Send a RA to start SLAAC and subsequent DAD.
-    self.SendRA(self.test_netid, retranstimer=300)
+    self.SendRA(self.test_netid, retranstimer=RETRANS_TIMER)
     # Get flags and prove optimism.
     self.assertAddressHasExpectedAttributes(
         self.test_ip, self.test_ifindex, iproute.IFA_F_OPTIMISTIC)
@@ -217,7 +222,7 @@ class OptimisticAddressOkayTest(MultiInterfaceSourceAddressSelectionTest):
     self.SetOptimisticDAD(self.test_ifname, 1)
     self.SetUseOptimistic(self.test_ifname, 1)
     # Send a RA to start SLAAC and subsequent DAD.
-    self.SendRA(self.test_netid, retranstimer=300)
+    self.SendRA(self.test_netid, retranstimer=RETRANS_TIMER)
     # Get flags and prove optimistism.
     self.assertAddressHasExpectedAttributes(
         self.test_ip, self.test_ifindex, iproute.IFA_F_OPTIMISTIC)
@@ -244,7 +249,7 @@ class ValidBeforeOptimisticTest(MultiInterfaceSourceAddressSelectionTest):
     self.SetOptimisticDAD(self.test_ifname, 1)
     self.SetUseOptimistic(self.test_ifname, 1)
     # Send a RA to start SLAAC and subsequent DAD.
-    self.SendRA(self.test_netid, retranstimer=300)
+    self.SendRA(self.test_netid, retranstimer=RETRANS_TIMER)
     # Get flags and prove optimism.
     self.assertAddressHasExpectedAttributes(
         self.test_ip, self.test_ifindex, iproute.IFA_F_OPTIMISTIC)
@@ -264,7 +269,7 @@ class DadFailureTest(MultiInterfaceSourceAddressSelectionTest):
     self.SetOptimisticDAD(self.test_ifname, 1)
     self.SetUseOptimistic(self.test_ifname, 1)
     # Send a RA to start SLAAC and subsequent DAD.
-    self.SendRA(self.test_netid, retranstimer=300)
+    self.SendRA(self.test_netid, retranstimer=RETRANS_TIMER)
     # Prove optimism and usability.
     self.assertAddressHasExpectedAttributes(
         self.test_ip, self.test_ifindex, iproute.IFA_F_OPTIMISTIC)
@@ -295,7 +300,7 @@ class NoNsFromOptimisticTest(MultiInterfaceSourceAddressSelectionTest):
     self.SetOptimisticDAD(self.test_ifname, 1)
     self.SetUseOptimistic(self.test_ifname, 1)
     # Send a RA to start SLAAC and subsequent DAD.
-    self.SendRA(self.test_netid, retranstimer=300)
+    self.SendRA(self.test_netid, retranstimer=RETRANS_TIMER)
     # Prove optimism and usability.
     self.assertAddressHasExpectedAttributes(
         self.test_ip, self.test_ifindex, iproute.IFA_F_OPTIMISTIC)
