@@ -42,14 +42,11 @@ class ForwardingTest(multinetwork_base.MultiNetworkBaseTest):
     self.SetSysctl("/proc/sys/net/ipv6/conf/all/forwarding", 0)
 
   def CheckForwardingCrash(self, netid, iface1, iface2):
-    listenport = packets.RandomPort()
-    listensocket = net_test.IPv6TCPSocket()
-    listensocket.setsockopt(SOL_SOCKET, SO_REUSEADDR, 1)
-    listensocket.bind(("::", listenport))
-    listensocket.listen(100)
-    self.SetSocketMark(listensocket, netid)
-
     version = 6
+    listensocket = net_test.IPv6TCPSocket()
+    self.SetSocketMark(listensocket, netid)
+    listenport = net_test.BindRandomPort(version, listensocket)
+
     remoteaddr = self.GetRemoteAddress(version)
     myaddr = self.MyAddress(version, netid)
 
