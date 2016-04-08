@@ -223,10 +223,9 @@ class OutgoingTest(multinetwork_base.MultiNetworkBaseTest):
       s = net_test.UDPSocket(self.GetProtocolFamily(version))
 
       # Figure out what packets to expect.
-      unspec = {4: "0.0.0.0", 6: "::"}[version]
-      sport = packets.RandomPort()
-      s.bind((unspec, sport))
+      sport = net_test.BindRandomPort(version, s)
       dstaddr = {4: self.IPV4_ADDR, 6: self.IPV6_ADDR}[version]
+      unspec = {4: "0.0.0.0", 6: "::"}[version]  # Placeholder.
       desc, expected = packets.UDP(version, unspec, dstaddr, sport)
 
       # If we're testing connected sockets, connect the socket on the first
@@ -423,11 +422,8 @@ class TCPAcceptTest(InboundMarkingTest):
     # bug causes incoming packets to mark the listening socket instead of the
     # accepted socket, the test will fail as soon as the next address/interface
     # combination is tried.
-    cls.listenport = 1234
     cls.listensocket = net_test.IPv6TCPSocket()
-    cls.listensocket.setsockopt(SOL_SOCKET, SO_REUSEADDR, 1)
-    cls.listensocket.bind(("::", cls.listenport))
-    cls.listensocket.listen(100)
+    cls.listenport = net_test.BindRandomPort(6, cls.listensocket)
 
   def BounceSocket(self, s):
     """Attempts to invalidate a socket's destination cache entry."""
