@@ -39,7 +39,7 @@ PING_TOS = 0x83
 UDP_PAYLOAD = net_test.UDP_PAYLOAD
 
 
-def RandomPort():
+def _RandomPort():
   return random.randint(1025, 65535)
 
 def _GetIpLayer(version):
@@ -57,7 +57,7 @@ def UDP(version, srcaddr, dstaddr, sport=0):
   ip = _GetIpLayer(version)
   # Can't just use "if sport" because None has meaning (it means unspecified).
   if sport == 0:
-    sport = RandomPort()
+    sport = _RandomPort()
   return ("UDPv%d packet" % version,
           ip(src=srcaddr, dst=dstaddr) /
           scapy.UDP(sport=sport, dport=53) / UDP_PAYLOAD)
@@ -77,7 +77,7 @@ def UDPWithOptions(version, srcaddr, dstaddr, sport=0):
 def SYN(dport, version, srcaddr, dstaddr, sport=0, seq=TCP_SEQ):
   ip = _GetIpLayer(version)
   if sport == 0:
-    sport = RandomPort()
+    sport = _RandomPort()
   return ("TCP SYN",
           ip(src=srcaddr, dst=dstaddr) /
           scapy.TCP(sport=sport, dport=dport,

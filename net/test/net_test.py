@@ -14,6 +14,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import errno
 import fcntl
 import os
 import random
@@ -153,9 +154,20 @@ def RawGRESocket(family):
   return s
 
 
+def BindRandomPort(version, sock):
+  addr = {4: "0.0.0.0", 5: "::", 6: "::"}[version]
+  sock.setsockopt(SOL_SOCKET, SO_REUSEADDR, 1)
+  sock.bind((addr, 0))
+  if sock.getsockopt(SOL_SOCKET, SO_PROTOCOL) == IPPROTO_TCP:
+    sock.listen(100)
+  port = sock.getsockname()[1]
+  return port
+
+
 def EnableFinWait(sock):
   # Disabling SO_LINGER causes sockets to go into FIN_WAIT on close().
   sock.setsockopt(SOL_SOCKET, SO_LINGER, struct.pack("ii", 0, 0))
+
 
 def DisableFinWait(sock):
   # Enabling SO_LINGER with a timeout of zero causes close() to send RST.
