@@ -32,6 +32,7 @@ MsgHdr = cstruct.Struct("msghdr", "@LLLLLLi",
 SockaddrIn = cstruct.Struct("sockaddr_in", "=HH4sxxxxxxxx", "family port addr")
 SockaddrIn6 = cstruct.Struct("sockaddr_in6", "=HHI16sI",
                              "family port flowinfo addr scope_id")
+SockaddrStorage = cstruct.Struct("sockaddr_storage", "=H126s", "family data")
 
 # Constants.
 CMSG_ALIGNTO = struct.calcsize("@L")  # The kernel defines this as sizeof(long).
@@ -108,7 +109,7 @@ def _MakeMsgControl(optlist):
 
 
 def Bind(s, to):
-  """Python wrapper for connect."""
+  """Python wrapper for bind."""
   ret = libc.bind(s.fileno(), to.CPointer(), len(to))
   MaybeRaiseSocketError(ret)
   return ret
@@ -180,3 +181,32 @@ def Sendmsg(s, to, data, control, flags):
   MaybeRaiseSocketError(ret)
 
   return ret
+
+
+def Recvfrom(s, size, flags=0):
+  """Python wrapper for recvfrom."""
+  buf = ctypes.create_string_buffer(size)
+  addr = ctypes.create_string_buffer(len(SockaddrStorage))
+  alen = ctypes.c_int(len(addr))
+
+  ret = libc.recvfrom(s.fileno(), buf, len(buf), flags,
+                      addr, ctypes.byref(alen))
+  MaybeRaiseSocketError(ret)
+
+  data = buf[:ret]
+  alen = alen.value
+  addr = addr.raw[:alen]
+
+  # Attempt to convert the address to something we understand.
+  if alen == 0:
+    addr = None
+  elif alen == len(SockaddrIn) and SockaddrIn(addr).family == socket.AF_INET:
+    addr = SockaddrIn(addr)
+  elif alen == len(SockaddrIn6) and SockaddrIn6(addr).family == socket.AF_INET6:
+    addr = SockaddrIn6(addr)
+  elif alen == len(SockaddrStorage):  # Can this ever happen?
+    addr = SockaddrStorage(addr)
+  else:
+    pass  # Unknown or malformed. Return the raw bytes.
+
+  return data, addr
