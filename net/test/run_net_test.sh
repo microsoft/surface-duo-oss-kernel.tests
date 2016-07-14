@@ -63,7 +63,7 @@ if [ ! -f $ROOTFS ]; then
   echo "Deleting $COMPRESSED_ROOTFS" >&2
   rm -f $COMPRESSED_ROOTFS
   echo "Downloading $URL" >&2
-  wget $URL
+  wget -nv $URL
   echo "Uncompressing $COMPRESSED_ROOTFS" >&2
   unxz $COMPRESSED_ROOTFS
 fi
@@ -132,4 +132,4 @@ dir=/host$(dirname $(readlink -f $0))
 # Start the VM.
 exec $KERNEL_BINARY umid=net_test ubda=$(dirname $0)/$ROOTFS \
     mem=512M init=/sbin/net_test.sh net_test=$dir/$test \
-    net_test_mode=$testmode $netconfig $consolemode
+    net_test_mode=$testmode $netconfig $consolemode >&2
