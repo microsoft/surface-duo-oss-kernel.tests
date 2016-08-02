@@ -48,16 +48,9 @@ IPV6_UNICAST_IF = 76
 
 # Cmsg values.
 IP_TTL = 2
-IP_PKTINFO = 8
 IPV6_2292PKTOPTIONS = 6
 IPV6_FLOWINFO = 11
-IPV6_PKTINFO = 50
 IPV6_HOPLIMIT = 52  # Different from IPV6_UNICAST_HOPS, this is cmsg only.
-
-# Data structures.
-# These aren't constants, they're classes. So, pylint: disable=invalid-name
-InPktinfo = cstruct.Struct("in_pktinfo", "@i4s4s", "ifindex spec_dst addr")
-In6Pktinfo = cstruct.Struct("in6_pktinfo", "@16si", "addr ifindex")
 
 
 def HaveUidRouting():
@@ -95,9 +88,9 @@ def MakePktInfo(version, addr, ifindex):
   if addr:
     addr = inet_pton(family, addr)
   if version == 6:
-    return In6Pktinfo((addr, ifindex)).Pack()
+    return csocket.In6Pktinfo((addr, ifindex)).Pack()
   else:
-    return InPktinfo((ifindex, addr, "\x00" * 4)).Pack()
+    return csocket.InPktinfo((ifindex, addr, "\x00" * 4)).Pack()
 
 
 class MultiNetworkBaseTest(net_test.NetworkTest):
@@ -461,8 +454,8 @@ class MultiNetworkBaseTest(net_test.NetworkTest):
     if netid is not None:
       pktinfo = MakePktInfo(version, None, self.ifindices[netid])
       cmsg_level, cmsg_name = {
-          4: (net_test.SOL_IP, IP_PKTINFO),
-          6: (net_test.SOL_IPV6, IPV6_PKTINFO)}[version]
+          4: (net_test.SOL_IP, csocket.IP_PKTINFO),
+          6: (net_test.SOL_IPV6, csocket.IPV6_PKTINFO)}[version]
       cmsgs.append((cmsg_level, cmsg_name, pktinfo))
     csocket.Sendmsg(s, (dstaddr, dstport), payload, cmsgs, csocket.MSG_CONFIRM)
 
