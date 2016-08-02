@@ -68,7 +68,8 @@ def HaveUidRouting():
   result = any("FRA_UID_START" in attrs for rule, attrs in rules)
 
   # Delete the rule.
-  iproute.IPRoute().UidRangeRule(6, False, 1000, 2000, 100, 10000)
+  if result:
+    iproute.IPRoute().UidRangeRule(6, False, 1000, 2000, 100, 10000)
   return result
 
 AUTOCONF_TABLE_SYSCTL = "/proc/sys/net/ipv6/conf/default/accept_ra_rt_table"
