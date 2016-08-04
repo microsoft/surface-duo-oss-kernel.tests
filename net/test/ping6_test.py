@@ -52,12 +52,13 @@ class PingReplyThread(threading.Thread):
   NEIGHBOURS = ["fe80::1"]
   LINK_MTU = 1300
 
-  def __init__(self, tun, mymac, routermac):
+  def __init__(self, tun, mymac, routermac, routeraddr):
     super(PingReplyThread, self).__init__()
     self._tun = tun
     self._stopped = False
     self._mymac = mymac
     self._routermac = routermac
+    self._routeraddr = routeraddr
 
   def Stop(self):
     self._stopped = True
@@ -155,7 +156,7 @@ class PingReplyThread(threading.Thread):
 
     if ipv6.dst.startswith("ff02::"):
       ipv6.dst = ipv6.src
-      for src in self.NEIGHBOURS:
+      for src in [self._routeraddr]:
         ipv6.src = src
         icmpv6.type = ICMPV6_ECHO_REPLY
         self.SendPacket(ipv6)
@@ -165,6 +166,8 @@ class PingReplyThread(threading.Thread):
       self.SendPacketTooBig(ipv6)
     else:
       icmpv6.type = ICMPV6_ECHO_REPLY
+      if ipv6.dst.startswith("fe80:") and ipv6.dst != self._routeraddr:
+        return
       self.SwapAddresses(ipv6)
       self.SendPacket(ipv6)
 
@@ -177,12 +180,12 @@ class PingReplyThread(threading.Thread):
     packet = scapy.Ether(src=self._routermac, dst=self._mymac) / packet
     try:
       posix.write(self._tun.fileno(), str(packet))
-    except ValueError:
-      pass
+    except Exception, e:
+      if not self._stopped:
+        raise e
 
   def run(self):
     while not self._stopped:
-
       try:
         packet = posix.read(self._tun.fileno(), 4096)
       except OSError, e:
@@ -190,6 +193,9 @@ class PingReplyThread(threading.Thread):
           continue
         else:
           break
+      except ValueError, e:
+        if not self._stopped:
+          raise e
 
       ether = scapy.Ether(packet)
       if ether.type == net_test.ETH_P_IPV6:
@@ -203,17 +209,21 @@ class Ping6Test(multinetwork_base.MultiNetworkBaseTest):
   @classmethod
   def setUpClass(cls):
     super(Ping6Test, cls).setUpClass()
+    cls.reply_threads = {}
+    for netid in cls.NETIDS:
+      cls.reply_threads[netid] = PingReplyThread(
+        cls.tuns[netid],
+        cls.MyMacAddress(netid),
+        cls.RouterMacAddress(netid),
+        cls._RouterAddress(netid, 6))
+      cls.reply_threads[netid].start()
     cls.netid = random.choice(cls.NETIDS)
-    cls.reply_thread = PingReplyThread(
-        cls.tuns[cls.netid],
-        cls.MyMacAddress(cls.netid),
-        cls.RouterMacAddress(cls.netid))
     cls.SetDefaultNetwork(cls.netid)
-    cls.reply_thread.start()
 
   @classmethod
   def tearDownClass(cls):
-    cls.reply_thread.Stop()
+    for thread in cls.reply_threads.values():
+      thread.Stop()
     cls.ClearDefaultNetwork()
     super(Ping6Test, cls).tearDownClass()
 
@@ -570,6 +580,41 @@ class Ping6Test(multinetwork_base.MultiNetworkBaseTest):
     s.sendto(net_test.IPV6_PING, ("fe80::1", 55, 0, self.ifindex))
     # No exceptions? Good.
 
+  @unittest.skipUnless(net_test.LINUX_VERSION >= (4, 8, 0), "Not yet fixed")
+  def testLinkLocalOif(self):
+    """Checks that ping to link-local addresses works correctly.
+
+    Relevant kernel commits:
+      upstream net:
+        5e45789 net: ipv6: Fix ping to link-local addresses.
+    """
+    s = net_test.IPv6PingSocket()
+    for mode in ["oif", "ucast_oif", None]:
+      s = net_test.IPv6PingSocket()
+      for netid in self.NETIDS:
+        dst = self._RouterAddress(netid, 6)
+        self.assertTrue(dst.startswith("fe80:"))
+
+        if mode:
+          self.SelectInterface(s, netid, mode)
+          scopeid = 0
+        else:
+          scopeid = self.ifindices[netid]
+
+        if mode == "oif":
+          # If SO_BINDTODEVICE has been set, any attempt to send on another
+          # interface returns EINVAL.
+          othernetid = self.NETIDS[(self.NETIDS.index(netid) + 1)
+                                   % len(self.NETIDS)]
+          otherscopeid = self.ifindices[othernetid]
+          self.assertRaisesErrno(
+              errno.EINVAL,
+              s.sendto, net_test.IPV6_PING, (dst, 55, 0, otherscopeid))
+
+        s.sendto(net_test.IPV6_PING, (dst, 123, 0, scopeid))
+        # If we got a reply, we sent the packet out on the right interface.
+        self.assertValidPingResponse(s, net_test.IPV6_PING)
+
   def testMappedAddressFails(self):
     s = net_test.IPv6PingSocket()
     s.sendto(net_test.IPV6_PING, (net_test.IPV6_ADDR, 55))
@@ -700,7 +745,7 @@ class Ping6Test(multinetwork_base.MultiNetworkBaseTest):
     s.connect(("ff02::1", 0xdead))
     self.CheckSockStatFile("icmp6", self.lladdr, 0xd00d, "ff02::1", 0xdead, 1)
     s.send(net_test.IPV6_PING)
-    time.sleep(0.01)  # Give the other thread time to reply.
+    s.recvfrom(32768, MSG_PEEK)  # Wait until the receive thread replies.
     self.CheckSockStatFile("icmp6", self.lladdr, 0xd00d, "ff02::1", 0xdead, 1,
                            txmem=0, rxmem=0x300)
     self.assertValidPingResponse(s, net_test.IPV6_PING)
@@ -749,12 +794,13 @@ class Ping6Test(multinetwork_base.MultiNetworkBaseTest):
     self.assertEquals(csocket.Sockaddr(("2001:4860:4860::8888", 0)), addr)
 
     # Check the cmsg data, including the link MTU.
+    mtu = PingReplyThread.LINK_MTU
+    src = self.reply_threads[self.netid].INTERMEDIATE_IPV6
     msglist = [
         (net_test.SOL_IPV6, net_test.IPV6_RECVERR,
          (csocket.SockExtendedErr((errno.EMSGSIZE, csocket.SO_ORIGIN_ICMP6,
-                                   ICMPV6_PKT_TOOBIG, 0,
-                                   self.reply_thread.LINK_MTU, 0)),
-          csocket.Sockaddr((self.reply_thread.INTERMEDIATE_IPV6, 0))))
+                                   ICMPV6_PKT_TOOBIG, 0, mtu, 0)),
+          csocket.Sockaddr((src, 0))))
     ]
     self.assertEquals(msglist, cmsg)
 
