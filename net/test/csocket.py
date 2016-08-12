@@ -19,6 +19,7 @@ import ctypes.util
 import os
 import socket
 import struct
+import sys
 
 import cstruct
 
@@ -33,10 +34,26 @@ SockaddrIn = cstruct.Struct("sockaddr_in", "=HH4sxxxxxxxx", "family port addr")
 SockaddrIn6 = cstruct.Struct("sockaddr_in6", "=HHI16sI",
                              "family port flowinfo addr scope_id")
 SockaddrStorage = cstruct.Struct("sockaddr_storage", "=H126s", "family data")
+SockExtendedErr = cstruct.Struct("sock_extended_err", "@IBBBxII",
+                                 "errno origin type code info data")
+InPktinfo = cstruct.Struct("in_pktinfo", "@i4s4s", "ifindex spec_dst addr")
+In6Pktinfo = cstruct.Struct("in6_pktinfo", "@16si", "addr ifindex")
 
 # Constants.
+IP_TTL = 2
+IP_PKTINFO = 8
+IP_RECVERR = 11
+IP_RECVTTL = 12
+IPV6_RECVERR = 25
+IPV6_RECVPKTINFO = 49
+IPV6_PKTINFO = 50
+IPV6_RECVHOPLIMIT = 51
+IPV6_HOPLIMIT = 52
 CMSG_ALIGNTO = struct.calcsize("@L")  # The kernel defines this as sizeof(long).
 MSG_CONFIRM = 0X800
+MSG_ERRQUEUE = 0x2000
+SO_ORIGIN_ICMP = 2
+SO_ORIGIN_ICMP6 = 3
 
 # Find the C library.
 libc = ctypes.CDLL(ctypes.util.find_library("c"), use_errno=True)
@@ -106,6 +123,38 @@ def _MakeMsgControl(optlist):
     msg_control += data + padding
 
   return msg_control
+
+
+def _ParseMsgControl(buf):
+  """Parse a raw control buffer into a list of tuples."""
+  msglist = []
+  while len(buf) > 0:
+    cmsghdr, buf = cstruct.Read(buf, CMsgHdr)
+    datalen = cmsghdr.len - len(CMsgHdr)
+    data, buf = buf[:datalen], buf[PaddedLength(datalen):]
+
+    if cmsghdr.level == socket.IPPROTO_IP:
+      if cmsghdr.type == IP_PKTINFO:
+        data = InPktinfo(data)
+      elif cmsghdr.type == IP_TTL:
+        data = struct.unpack("@I", data)[0]
+
+    if cmsghdr.level == socket.IPPROTO_IPV6:
+      if cmsghdr.type == IPV6_PKTINFO:
+        data = In6Pktinfo(data)
+      elif cmsghdr.type == IPV6_RECVERR:
+        err, source = cstruct.Read(data, SockExtendedErr)
+        if err.origin == SO_ORIGIN_ICMP6:
+          source, pad = cstruct.Read(source, SockaddrIn6)
+        data = (err, source)
+      elif cmsghdr.type == IPV6_HOPLIMIT:
+        data = struct.unpack("@I", data)[0]
+
+    # If not, leave data as just the raw bytes.
+
+    msglist.append((cmsghdr.level, cmsghdr.type, data))
+
+  return msglist
 
 
 def Bind(s, to):
@@ -183,6 +232,64 @@ def Sendmsg(s, to, data, control, flags):
   return ret
 
 
+def _ToSocketAddress(addr, alen):
+  addr = addr[:alen]
+
+  # Attempt to convert the address to something we understand.
+  if alen == 0:
+    return None
+  elif alen == len(SockaddrIn) and SockaddrIn(addr).family == socket.AF_INET:
+    return SockaddrIn(addr)
+  elif alen == len(SockaddrIn6) and SockaddrIn6(addr).family == socket.AF_INET6:
+    return SockaddrIn6(addr)
+  elif alen == len(SockaddrStorage):  # Can this ever happen?
+    return SockaddrStorage(addr)
+  else:
+    return addr  # Unknown or malformed. Return the raw bytes.
+
+
+def Recvmsg(s, buflen, controllen, flags, addrlen=len(SockaddrStorage)):
+  """Python wrapper for recvmsg.
+
+  Args:
+    s: A Python socket object. Becomes sockfd.
+    buflen: An integer, the maximum number of bytes to read.
+    addrlen: An integer, the maximum size of the source address.
+    controllen: An integer, the maximum size of the cmsg buffer.
+
+  Returns:
+    A tuple of received bytes, socket address tuple, and cmg list.
+
+  Raises:
+    socket.error: If recvmsg fails.
+  """
+  addr = ctypes.create_string_buffer(addrlen)
+  msg_name = ctypes.addressof(addr)
+  msg_namelen = addrlen
+
+  buf = ctypes.create_string_buffer(buflen)
+  iov = Iovec((ctypes.addressof(buf), buflen))
+  msg_iov = iov.CPointer()
+  msg_iovlen = 1
+
+  control = ctypes.create_string_buffer(controllen)
+  msg_control = ctypes.addressof(control)
+  msg_controllen = controllen
+
+  msghdr = MsgHdr((msg_name, msg_namelen, msg_iov, msg_iovlen,
+                   msg_control, msg_controllen, flags))
+  ret = libc.recvmsg(s.fileno(), msghdr.CPointer(), flags)
+  MaybeRaiseSocketError(ret)
+
+  data = buf.raw[:ret]
+  msghdr = MsgHdr(str(msghdr._buffer.raw))
+  addr = _ToSocketAddress(addr, msghdr.namelen)
+  control = control.raw[:msghdr.msg_controllen]
+  msglist = _ParseMsgControl(control)
+
+  return data, addr, msglist
+
+
 def Recvfrom(s, size, flags=0):
   """Python wrapper for recvfrom."""
   buf = ctypes.create_string_buffer(size)
@@ -195,18 +302,7 @@ def Recvfrom(s, size, flags=0):
 
   data = buf[:ret]
   alen = alen.value
-  addr = addr.raw[:alen]
 
-  # Attempt to convert the address to something we understand.
-  if alen == 0:
-    addr = None
-  elif alen == len(SockaddrIn) and SockaddrIn(addr).family == socket.AF_INET:
-    addr = SockaddrIn(addr)
-  elif alen == len(SockaddrIn6) and SockaddrIn6(addr).family == socket.AF_INET6:
-    addr = SockaddrIn6(addr)
-  elif alen == len(SockaddrStorage):  # Can this ever happen?
-    addr = SockaddrStorage(addr)
-  else:
-    pass  # Unknown or malformed. Return the raw bytes.
+  addr = _ToSocketAddress(addr.raw, alen)
 
   return data, addr

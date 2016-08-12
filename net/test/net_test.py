@@ -25,6 +25,7 @@ import unittest
 
 from scapy import all as scapy
 
+# TODO: Move these to csocket.py.
 SOL_IPV6 = 41
 IP_RECVERR = 11
 IPV6_RECVERR = 25
