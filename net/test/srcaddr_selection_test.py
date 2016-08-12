@@ -158,7 +158,10 @@ class MultiInterfaceSourceAddressSelectionTest(IPv6SourceAddressSelectionTest):
 
     self.assertAddressNotUsable(self.test_ip, self.test_netid)
     # Verify that the link-local address is not tentative.
-    self.assertFalse(self.AddressIsTentative(self.test_lladdr))
+    # Even though we disable DAD above, without this change occasionally the
+    # test fails. This might be due to us disabling DAD only after the
+    # link-local address is generated.
+    self.WaitForDad(self.test_lladdr)
 
 
 class TentativeAddressTest(MultiInterfaceSourceAddressSelectionTest):
