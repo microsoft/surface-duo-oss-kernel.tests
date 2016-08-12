@@ -27,6 +27,18 @@ import packets
 
 
 class ForwardingTest(multinetwork_base.MultiNetworkBaseTest):
+  """Checks that IPv6 forwarding doesn't crash the system.
+
+  Relevant kernel commits:
+    upstream net-next:
+      e7eadb4 ipv6: inet6_sk() should use sk_fullsock()
+    android-3.10:
+      feee3c1 ipv6: inet6_sk() should use sk_fullsock()
+      cdab04e net: add sk_fullsock() helper
+    android-3.18:
+      8246f18 ipv6: inet6_sk() should use sk_fullsock()
+      bea19db net: add sk_fullsock() helper
+  """
 
   TCP_TIME_WAIT = 6
 
