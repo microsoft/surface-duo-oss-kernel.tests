@@ -24,6 +24,7 @@ import unittest
 
 from scapy import all as scapy
 
+import csocket
 import iproute
 import multinetwork_base
 import net_test
@@ -659,29 +660,21 @@ class PMTUTest(InboundMarkingTest):
 
   PAYLOAD_SIZE = 1400
 
-  # Socket options to change PMTU behaviour.
-  IP_MTU_DISCOVER = 10
-  IP_PMTUDISC_DO = 1
-  IPV6_DONTFRAG = 62
-
-  # Socket options to get the MTU.
-  IP_MTU = 14
-  IPV6_PATHMTU = 61
-
   def GetSocketMTU(self, version, s):
     if version == 6:
-      ip6_mtuinfo = s.getsockopt(net_test.SOL_IPV6, self.IPV6_PATHMTU, 32)
+      ip6_mtuinfo = s.getsockopt(net_test.SOL_IPV6, csocket.IPV6_PATHMTU, 32)
       unused_sockaddr, mtu = struct.unpack("=28sI", ip6_mtuinfo)
       return mtu
     else:
-      return s.getsockopt(net_test.SOL_IP, self.IP_MTU)
+      return s.getsockopt(net_test.SOL_IP, csocket.IP_MTU)
 
   def DisableFragmentationAndReportErrors(self, version, s):
     if version == 4:
-      s.setsockopt(net_test.SOL_IP, self.IP_MTU_DISCOVER, self.IP_PMTUDISC_DO)
+      s.setsockopt(net_test.SOL_IP, csocket.IP_MTU_DISCOVER,
+                   csocket.IP_PMTUDISC_DO)
       s.setsockopt(net_test.SOL_IP, net_test.IP_RECVERR, 1)
     else:
-      s.setsockopt(net_test.SOL_IPV6, self.IPV6_DONTFRAG, 1)
+      s.setsockopt(net_test.SOL_IPV6, csocket.IPV6_DONTFRAG, 1)
       s.setsockopt(net_test.SOL_IPV6, net_test.IPV6_RECVERR, 1)
 
   def CheckPMTU(self, version, use_connect, modes):

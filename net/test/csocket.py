@@ -40,20 +40,37 @@ InPktinfo = cstruct.Struct("in_pktinfo", "@i4s4s", "ifindex spec_dst addr")
 In6Pktinfo = cstruct.Struct("in6_pktinfo", "@16si", "addr ifindex")
 
 # Constants.
+# IPv4 socket options and cmsg types.
 IP_TTL = 2
+IP_MTU_DISCOVER = 10
 IP_PKTINFO = 8
 IP_RECVERR = 11
 IP_RECVTTL = 12
+IP_MTU = 14
+
+# IPv6 socket options and cmsg types.
+IPV6_MTU_DISCOVER = 23
 IPV6_RECVERR = 25
 IPV6_RECVPKTINFO = 49
 IPV6_PKTINFO = 50
 IPV6_RECVHOPLIMIT = 51
 IPV6_HOPLIMIT = 52
+IPV6_PATHMTU = 61
+IPV6_DONTFRAG = 62
+
+# PMTUD values.
+IP_PMTUDISC_DO = 1
+
 CMSG_ALIGNTO = struct.calcsize("@L")  # The kernel defines this as sizeof(long).
+
+# Sendmsg flags
 MSG_CONFIRM = 0X800
 MSG_ERRQUEUE = 0x2000
+
+# Linux errqueue API.
 SO_ORIGIN_ICMP = 2
 SO_ORIGIN_ICMP6 = 3
+
 
 # Find the C library.
 libc = ctypes.CDLL(ctypes.util.find_library("c"), use_errno=True)
