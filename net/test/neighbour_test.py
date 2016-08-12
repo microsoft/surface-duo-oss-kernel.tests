@@ -17,6 +17,7 @@
 import errno
 import random
 from socket import *  # pylint: disable=wildcard-import
+import subprocess
 import time
 import unittest
 
@@ -40,7 +41,7 @@ NUD_PERMANENT = 0x80
 # TODO: Support IPv4.
 class NeighbourTest(multinetwork_base.MultiNetworkBaseTest):
 
-  # Set a 100-ms retrans timer so we can test for ND retransmits without
+  # Set a 500-ms retrans timer so we can test for ND retransmits without
   # waiting too long. Apparently this cannot go below 500ms.
   RETRANS_TIME_MS = 500
 
@@ -51,7 +52,8 @@ class NeighbourTest(multinetwork_base.MultiNetworkBaseTest):
   # not behave correctly (e.g., go straight from REACHABLE into DELAY). This is
   # is fuzzed by the kernel from 0.5x to 1.5x of its value, so we need a value
   # that's 2x the delay timer.
-  REACHABLE_TIME_MS = 2 * DELAY_TIME_MS
+  BASE_REACHABLE_TIME_MS = 2 * DELAY_TIME_MS
+  MAX_REACHABLE_TIME_MS = 1.5 * BASE_REACHABLE_TIME_MS
 
   @classmethod
   def setUpClass(cls):
@@ -76,7 +78,7 @@ class NeighbourTest(multinetwork_base.MultiNetworkBaseTest):
       # Configure IPv6 by sending an RA.
       self.SendRA(netid,
                   retranstimer=self.RETRANS_TIME_MS,
-                  reachabletime=self.REACHABLE_TIME_MS)
+                  reachabletime=self.BASE_REACHABLE_TIME_MS)
 
     self.sock = socket(AF_NETLINK, SOCK_RAW, NETLINK_ROUTE)
     self.sock.bind((0, RTMGRP_NEIGH))
@@ -187,7 +189,6 @@ class NeighbourTest(multinetwork_base.MultiNetworkBaseTest):
       android-3.18:
         2011e72 neigh: Better handling of transition to NUD_PROBE state
     """
-
     router4 = self._RouterAddress(self.netid, 4)
     router6 = self._RouterAddress(self.netid, 6)
     self.assertNeighbourState(NUD_PERMANENT, router4)
@@ -217,7 +218,7 @@ class NeighbourTest(multinetwork_base.MultiNetworkBaseTest):
       self.ExpectNeighbourNotification(router6, NUD_REACHABLE)
 
     # Wait until the reachable time has passed, and verify we're in STALE.
-    self.SleepMs(self.REACHABLE_TIME_MS * 1.5)
+    self.SleepMs(self.MAX_REACHABLE_TIME_MS * 1.2)
     self.assertNeighbourState(NUD_STALE, router6)
     self.ExpectNeighbourNotification(router6, NUD_STALE)
 
