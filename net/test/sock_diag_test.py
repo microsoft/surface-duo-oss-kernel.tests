@@ -107,6 +107,13 @@ class SockDiagTest(SockDiagBaseTest):
     else:
       self.assertRaisesErrno(ENOTCONN, s.getpeername)
 
+  def PackAndCheckBytecode(self, instructions):
+    bytecode = self.sock_diag.PackBytecode(instructions)
+    decoded = self.sock_diag.DecodeBytecode(bytecode)
+    self.assertEquals(len(instructions), len(decoded))
+    self.assertFalse("???" in decoded)
+    return bytecode
+
   def testFindsMappedSockets(self):
     """Tests that inet_diag_find_one_icsk can find mapped sockets."""
     socketpair = net_test.CreateSocketPair(AF_INET6, SOCK_STREAM,
@@ -168,7 +175,7 @@ class SockDiagTest(SockDiagBaseTest):
                                                                        # 80 rej
     ]
     # pylint: enable=bad-whitespace
-    bytecode = self.sock_diag.PackBytecode(instructions)
+    bytecode = self.PackAndCheckBytecode(instructions)
     expected = (
         "0208500000000000"
         "050848000000ffff"
@@ -199,7 +206,7 @@ class SockDiagTest(SockDiagBaseTest):
             (sock_diag.INET_DIAG_BC_D_GE, 1, 3, diag_msg.id.dport),
             (sock_diag.INET_DIAG_BC_D_LE, 1, 2, diag_msg.id.dport),
         ]
-        bytecode = self.sock_diag.PackBytecode(instructions)
+        bytecode = self.PackAndCheckBytecode(instructions)
         self.assertEquals(32, len(bytecode))
         sockets = self.sock_diag.DumpAllInetSockets(IPPROTO_TCP, bytecode)
         self.assertEquals(1, len(sockets))
@@ -224,9 +231,9 @@ class SockDiagTest(SockDiagBaseTest):
     unused_pair4 = net_test.CreateSocketPair(AF_INET, SOCK_STREAM, "127.0.0.1")
     unused_pair6 = net_test.CreateSocketPair(AF_INET6, SOCK_STREAM, "::1")
 
-    bytecode4 = self.sock_diag.PackBytecode([
+    bytecode4 = self.PackAndCheckBytecode([
         (sock_diag.INET_DIAG_BC_S_COND, 1, 2, ("0.0.0.0", 0, -1))])
-    bytecode6 = self.sock_diag.PackBytecode([
+    bytecode6 = self.PackAndCheckBytecode([
         (sock_diag.INET_DIAG_BC_S_COND, 1, 2, ("::", 0, -1))])
 
     # IPv4/v6 filters must never match IPv6/IPv4 sockets...
@@ -261,6 +268,8 @@ class SockDiagTest(SockDiagBaseTest):
         5e1f542 inet_diag: validate port comparison byte code to prevent unsafe reads
     """
     bytecode = sock_diag.InetDiagBcOp((sock_diag.INET_DIAG_BC_D_GE, 4, 8))
+    self.assertEquals("???",
+                      self.sock_diag.DecodeBytecode(bytecode))
     self.assertRaisesErrno(
         EINVAL,
         self.sock_diag.DumpAllInetSockets, IPPROTO_TCP, bytecode.Pack())
