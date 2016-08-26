@@ -45,6 +45,7 @@ class RemovedFeatureTest(net_test.NetworkTest):
   def assertFeatureAbsent(self, featureName):
     return self.assertTrue(featureName not in self.KCONFIG)
 
+  @unittest.skipUnless(False, "Breaks older security kernel targets")
   def testNetfilterRejectWithSocketError(self):
     """Verify that the CONFIG_IP{,6}_NF_TARGET_REJECT_SKERR option is gone.
 
