@@ -15,6 +15,7 @@
 # limitations under the License.
 
 readonly PREFIX="#####"
+readonly RETRIES=2
 
 function maybePlural() {
   # $1 = integer to use for plural check
@@ -25,6 +26,24 @@ function maybePlural() {
   else
     echo "$2"
   fi
+}
+
+
+function runTest() {
+  local cmd="$1"
+
+  if $cmd; then
+    return 0
+  fi
+
+  for iteration in $(seq $RETRIES); do
+    if ! $cmd; then
+      echo >&2 "'$cmd' failed more than once, giving up"
+      return 1
+    fi
+  done
+
+  echo >&2 "Warning: '$cmd' FLAKY, passed $RETRIES/$((RETRIES + 1))"
 }
 
 
@@ -40,7 +59,7 @@ for test in $tests; do
   echo ""
   echo "$PREFIX $test ($i/$count)"
   echo ""
-  $test || exit_code=$(( exit_code + 1 ))
+  runTest $test || exit_code=$(( exit_code + 1 ))
   echo ""
 done
 
