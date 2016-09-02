@@ -791,7 +791,14 @@ class Ping6Test(multinetwork_base.MultiNetworkBaseTest):
     self.assertEquals(pkt, data)
 
     # Check the address that the packet was sent to.
-    self.assertEquals(csocket.Sockaddr(("2001:4860:4860::8888", 0)), addr)
+    # ... except in 4.1, where it just returns an AF_UNSPEC, like this:
+    # recvmsg(9, {msg_name(0)={sa_family=AF_UNSPEC,
+    #     sa_data="\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"},
+    #     msg_iov(1)=[{"\x80\x00\x04\x6b\x00\xc4\x00\x03\x61\x61\x61\x61\x61\x61"..., 4096}],
+    #     msg_controllen=64, {cmsg_len=60, cmsg_level=SOL_IPV6, cmsg_type=, ...},
+    #     msg_flags=MSG_ERRQUEUE}, MSG_ERRQUEUE) = 1232
+    if net_test.LINUX_VERSION != (4, 1, 0):
+      self.assertEquals(csocket.Sockaddr(("2001:4860:4860::8888", 0)), addr)
 
     # Check the cmsg data, including the link MTU.
     mtu = PingReplyThread.LINK_MTU
