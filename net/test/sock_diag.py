@@ -70,6 +70,7 @@ INET_DIAG_BC_AUTO = 6
 INET_DIAG_BC_S_COND = 7
 INET_DIAG_BC_D_COND = 8
 INET_DIAG_BC_DEV_COND = 9
+INET_DIAG_BC_MARK_COND = 10
 
 # Data structure formats.
 # These aren't constants, they're classes. So, pylint: disable=invalid-name
@@ -87,6 +88,7 @@ InetDiagMeminfo = cstruct.Struct(
 InetDiagBcOp = cstruct.Struct("InetDiagBcOp", "BBH", "code yes no")
 InetDiagHostcond = cstruct.Struct("InetDiagHostcond", "=BBxxi",
                                   "family prefix_len port")
+InetDiagMarkcond = cstruct.Struct("InetDiagMarkcond", "=II", "mark mask")
 
 SkMeminfo = cstruct.Struct(
     "SkMeminfo", "=IIIIIIII",
@@ -211,6 +213,12 @@ class SockDiag(netlink.NetlinkSocket):
         family = AF_INET6 if ":" in addr else AF_INET
         addr = inet_pton(family, addr)
         arg = InetDiagHostcond((family, prefixlen, port)).Pack() + addr
+      elif op == INET_DIAG_BC_MARK_COND:
+        if isinstance(arg, tuple):
+          mark, mask = arg
+        else:
+          mark, mask = arg, 0xffffffff
+        arg = InetDiagMarkcond((mark, mask)).Pack()
       else:
         raise ValueError("Unsupported opcode %d" % op)
 
@@ -262,6 +270,8 @@ class SockDiag(netlink.NetlinkSocket):
           attrlen = struct.calcsize("=I")
           attr, rest = rest[:attrlen], rest[attrlen:]
           arg = struct.unpack("=I", attr)
+        elif op.code == INET_DIAG_BC_MARK_COND:
+          arg, rest = cstruct.Read(rest, InetDiagMarkcond)
         else:
           raise ValueError("Unknown opcode %d" % op.code)
         instructions.append((op, arg))
