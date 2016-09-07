@@ -78,20 +78,6 @@ class SockDiagBaseTest(multinetwork_base.MultiNetworkBaseTest):
     for sock in socketpair:
       self.assertSocketClosed(sock)
 
-  def setUp(self):
-    super(SockDiagBaseTest, self).setUp()
-    self.sock_diag = sock_diag.SockDiag()
-    self.socketpairs = {}
-
-  def tearDown(self):
-    for socketpair in self.socketpairs.values():
-      for s in socketpair:
-        s.close()
-    super(SockDiagBaseTest, self).tearDown()
-
-
-class SockDiagTest(SockDiagBaseTest):
-
   def assertSockDiagMatchesSocket(self, s, diag_msg):
     family = s.getsockopt(net_test.SOL_SOCKET, net_test.SO_DOMAIN)
     self.assertEqual(diag_msg.family, family)
@@ -113,6 +99,20 @@ class SockDiagTest(SockDiagBaseTest):
     self.assertEquals(len(instructions), len(decoded))
     self.assertFalse("???" in decoded)
     return bytecode
+
+  def setUp(self):
+    super(SockDiagBaseTest, self).setUp()
+    self.sock_diag = sock_diag.SockDiag()
+    self.socketpairs = {}
+
+  def tearDown(self):
+    for socketpair in self.socketpairs.values():
+      for s in socketpair:
+        s.close()
+    super(SockDiagBaseTest, self).tearDown()
+
+
+class SockDiagTest(SockDiagBaseTest):
 
   def testFindsMappedSockets(self):
     """Tests that inet_diag_find_one_icsk can find mapped sockets."""
@@ -619,6 +619,66 @@ class SockDestroyTcpTest(tcp_test.TcpBaseTest, SockDiagBaseTest):
       self.ExpectPacketOn(self.netid, desc, syn)
       msg = "SOCK_DESTROY of socket in connect, expected no RST"
       self.ExpectNoPacketsOn(self.netid, msg)
+
+
+@unittest.skipUnless(net_test.LINUX_VERSION >= (4, 9, 0), "does not yet exist")
+class SockDiagMarkTest(tcp_test.TcpBaseTest, SockDiagBaseTest):
+
+  """Tests SOCK_DIAG bytecode filters that use marks.
+
+    Relevant kernel commits:
+      upstream net-next:
+        a52e95a net: diag: allow socket bytecode filters to match socket marks
+        627cc4a net: diag: slightly refactor the inet_diag_bc_audit error checks.
+  """
+
+  def FilterEstablishedSockets(self, instructions):
+    bytecode = self.sock_diag.PackBytecode(instructions)
+    return self.sock_diag.DumpAllInetSockets(
+        IPPROTO_TCP, bytecode, states=(1 << tcp_test.TCP_ESTABLISHED))
+
+  def assertSamePorts(self, ports, diag_msgs):
+    expected = sorted(ports)
+    actual = sorted([msg[0].id.sport for msg in diag_msgs])
+    self.assertEquals(expected, actual)
+
+  def testMarkMasking(self):
+    family, addr = random.choice([
+        (AF_INET, "127.0.0.1"),
+        (AF_INET6, "::1"),
+        (AF_INET6, "::ffff:127.0.0.1")])
+    s1, s2 = net_test.CreateSocketPair(family, SOCK_STREAM, addr)
+    port1 = s1.getsockname()[1]
+    port2 = s2.getsockname()[1]
+    s1.setsockopt(SOL_SOCKET, net_test.SO_MARK, 0xfff1234)
+    s2.setsockopt(SOL_SOCKET, net_test.SO_MARK, 0xf0f1235)
+
+    instructions = [
+        (sock_diag.INET_DIAG_BC_MARK_COND, 1, 2, (0x1234, 0xfffe)),
+    ]
+    diag_msgs = self.FilterEstablishedSockets(instructions)
+    self.assertSamePorts([port1, port2], diag_msgs)
+
+    instructions = [
+        (sock_diag.INET_DIAG_BC_MARK_COND, 1, 2, (0x1235, 0xffff)),
+    ]
+    diag_msgs = self.FilterEstablishedSockets(instructions)
+    self.assertSockDiagMatchesSocket(s2, diag_msgs[0][0])
+
+    instructions = [
+        (sock_diag.INET_DIAG_BC_MARK_COND, 1, 2, (0x0, 0x0)),
+    ]
+    diag_msgs = self.FilterEstablishedSockets(instructions)
+    self.assertSamePorts([port1, port2], diag_msgs)
+
+    instructions = [
+        (sock_diag.INET_DIAG_BC_MARK_COND, 1, 2, (0xfff0000, 0xf0fed00)),
+    ]
+    self.assertEquals(0, len(self.FilterEstablishedSockets(instructions)))
+
+    with net_test.RunAsUid(12345):
+        self.assertRaisesErrno(EPERM, self.FilterEstablishedSockets,
+                               instructions)
 
 
 if __name__ == "__main__":
