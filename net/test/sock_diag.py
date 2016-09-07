@@ -52,6 +52,12 @@ INET_DIAG_TCLASS = 6
 INET_DIAG_SKMEMINFO = 7
 INET_DIAG_SHUTDOWN = 8
 INET_DIAG_DCTCPINFO = 9
+INET_DIAG_DCTCPINFO = 9
+INET_DIAG_PROTOCOL = 10
+INET_DIAG_SKV6ONLY = 11
+INET_DIAG_LOCALS = 12
+INET_DIAG_PEERS = 13
+INET_DIAG_PAD = 14
 
 # Bytecode operations.
 INET_DIAG_BC_NOP = 0
@@ -63,6 +69,7 @@ INET_DIAG_BC_D_LE = 5
 INET_DIAG_BC_AUTO = 6
 INET_DIAG_BC_S_COND = 7
 INET_DIAG_BC_D_COND = 8
+INET_DIAG_BC_DEV_COND = 9
 
 # Data structure formats.
 # These aren't constants, they're classes. So, pylint: disable=invalid-name
@@ -115,7 +122,8 @@ class SockDiag(netlink.NetlinkSocket):
       # Don't know what this is. Leave it as an integer.
       name = nla_type
 
-    if name in ["INET_DIAG_SHUTDOWN", "INET_DIAG_TOS", "INET_DIAG_TCLASS"]:
+    if name in ["INET_DIAG_SHUTDOWN", "INET_DIAG_TOS", "INET_DIAG_TCLASS",
+                "INET_DIAG_SKV6ONLY"]:
       data = ord(nla_data)
     elif name == "INET_DIAG_CONG":
       data = nla_data.strip("\x00")
@@ -127,7 +135,7 @@ class SockDiag(netlink.NetlinkSocket):
     elif name == "INET_DIAG_SKMEMINFO":
       data = SkMeminfo(nla_data)
     elif name == "INET_DIAG_REQ_BYTECODE":
-      data = nla_data.encode("hex")
+      data = self.DecodeBytecode(nla_data)
     else:
       data = nla_data
 
@@ -144,7 +152,8 @@ class SockDiag(netlink.NetlinkSocket):
   def _EmptyInetDiagSockId():
     return InetDiagSockId(("\x00" * len(InetDiagSockId)))
 
-  def PackBytecode(self, instructions):
+  @staticmethod
+  def PackBytecode(instructions):
     """Compiles instructions to inet_diag bytecode.
 
     The input is a list of (INET_DIAG_BC_xxx, yes, no, arg) tuples, where yes
@@ -226,6 +235,41 @@ class SockDiag(netlink.NetlinkSocket):
     #print
 
     return packed
+
+  @staticmethod
+  def DecodeBytecode(bytecode):
+    instructions = []
+    try:
+      while bytecode:
+        op, rest = cstruct.Read(bytecode, InetDiagBcOp)
+
+        if op.code in [INET_DIAG_BC_NOP, INET_DIAG_BC_JMP, INET_DIAG_BC_AUTO]:
+          arg = None
+        elif op.code in [INET_DIAG_BC_S_GE, INET_DIAG_BC_S_LE,
+                         INET_DIAG_BC_D_GE, INET_DIAG_BC_D_LE]:
+          op, rest = cstruct.Read(rest, InetDiagBcOp)
+          arg = op.no
+        elif op.code in [INET_DIAG_BC_S_COND, INET_DIAG_BC_D_COND]:
+          cond, rest = cstruct.Read(rest, InetDiagHostcond)
+          if cond.family == 0:
+            arg = (None, cond.prefix_len, cond.port)
+          else:
+            addrlen = 4 if cond.family == AF_INET else 16
+            addr, rest = rest[:addrlen], rest[addrlen:]
+            addr = inet_ntop(cond.family, addr)
+            arg = (addr, cond.prefix_len, cond.port)
+        elif op.code == INET_DIAG_BC_DEV_COND:
+          attrlen = struct.calcsize("=I")
+          attr, rest = rest[:attrlen], rest[attrlen:]
+          arg = struct.unpack("=I", attr)
+        else:
+          raise ValueError("Unknown opcode %d" % op.code)
+        instructions.append((op, arg))
+        bytecode = rest
+
+      return instructions
+    except (TypeError, ValueError):
+      return "???"
 
   def Dump(self, diag_req, bytecode):
     out = self._Dump(SOCK_DIAG_BY_FAMILY, diag_req, InetDiagMsg, bytecode)
