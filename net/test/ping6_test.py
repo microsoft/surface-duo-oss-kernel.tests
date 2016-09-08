@@ -580,7 +580,7 @@ class Ping6Test(multinetwork_base.MultiNetworkBaseTest):
     s.sendto(net_test.IPV6_PING, ("fe80::1", 55, 0, self.ifindex))
     # No exceptions? Good.
 
-  @unittest.skipUnless(net_test.LINUX_VERSION >= (4, 8, 0), "Not yet fixed")
+  @unittest.skipUnless(net_test.TargetsAfter("NDR"), "Not yet fixed")
   def testLinkLocalOif(self):
     """Checks that ping to link-local addresses works correctly.
 
