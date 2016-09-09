@@ -42,6 +42,16 @@ COMPRESSED_ROOTFS=$ROOTFS.xz
 URL=https://dl.google.com/dl/android/$COMPRESSED_ROOTFS
 
 # Parse arguments and figure out which test to run.
+J=${J:-64}
+MAKE="make"
+OUT_DIR=$(readlink -f ${OUT_DIR:-.})
+KERNEL_DIR=$(readlink -f ${KERNEL_DIR:-.})
+if [ "$OUT_DIR" != "$KERNEL_DIR" ]; then
+    MAKE="$MAKE O=$OUT_DIR"
+fi
+SCRIPT_DIR=$(dirname $(readlink -f $0))
+CONFIG_SCRIPT=${KERNEL_DIR}/scripts/config
+CONFIG_FILE=${OUT_DIR}/.config
 consolemode=
 testmode=
 while [ -n "$1" ]; do
@@ -67,11 +77,14 @@ if [ -z "$test" ]; then
   exit 1
 fi
 
+cd $OUT_DIR
+echo Running tests from: `pwd`
+
 set -e
 
 # Check if we need to uncompress the disk image.
 # We use xz because it compresses better: to 42M vs 72M (gzip) / 62M (bzip2).
-cd $(dirname $0)
+cd $SCRIPT_DIR
 if [ ! -f $ROOTFS ]; then
   echo "Deleting $COMPRESSED_ROOTFS" >&2
   rm -f $COMPRESSED_ROOTFS
@@ -111,18 +124,18 @@ if [ -z "$KERNEL_BINARY" ]; then
   # (?) results in a 32-bit kernel.
 
   # If there's no kernel config at all, create one or UML won't work.
-  [ -f .config ] || make defconfig ARCH=um SUBARCH=x86_64
+  [ -f $CONFIG_FILE ] || (cd $KERNEL_DIR && $MAKE defconfig ARCH=um SUBARCH=x86_64)
 
   # Enable the kernel config options listed in $OPTIONS.
   cmdline=${OPTIONS// / -e }
-  ./scripts/config $cmdline
+  $CONFIG_SCRIPT --file $CONFIG_FILE $cmdline
 
   # Disable the kernel config options listed in $DISABLE_OPTIONS.
   cmdline=${DISABLE_OPTIONS// / -d }
-  ./scripts/config $cmdline
+  $CONFIG_SCRIPT --file $CONFIG_FILE $cmdline
 
   # olddefconfig doesn't work on old kernels.
-  if ! make olddefconfig ARCH=um SUBARCH=x86_64 CROSS_COMPILE= ; then
+  if ! $MAKE olddefconfig ARCH=um SUBARCH=x86_64 CROSS_COMPILE= ; then
     cat >&2 << EOF
 
 Warning: "make olddefconfig" failed.
@@ -134,16 +147,15 @@ EOF
   fi
 
   # Compile the kernel.
-  make -j32 linux ARCH=um SUBARCH=x86_64 CROSS_COMPILE=
+  $MAKE -j$J linux ARCH=um SUBARCH=x86_64 CROSS_COMPILE=
   KERNEL_BINARY=./linux
 fi
 
-
 # Get the absolute path to the test file that's being run.
-dir=/host$(dirname $(readlink -f $0))
+dir=/host$SCRIPT_DIR
 
 # Start the VM.
-exec $KERNEL_BINARY umid=net_test ubda=$(dirname $0)/$ROOTFS \
+exec $KERNEL_BINARY umid=net_test ubda=$SCRIPT_DIR/$ROOTFS \
     mem=512M init=/sbin/net_test.sh net_test=$dir/$test \
     net_test_mode=$testmode net_test_branch=$branch \
     $netconfig $consolemode >&2
