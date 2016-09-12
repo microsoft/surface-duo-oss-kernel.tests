@@ -580,7 +580,6 @@ class Ping6Test(multinetwork_base.MultiNetworkBaseTest):
     s.sendto(net_test.IPV6_PING, ("fe80::1", 55, 0, self.ifindex))
     # No exceptions? Good.
 
-  @unittest.skipUnless(net_test.TargetsAfter("NDR"), "Not yet fixed")
   def testLinkLocalOif(self):
     """Checks that ping to link-local addresses works correctly.
 
@@ -764,7 +763,6 @@ class Ping6Test(multinetwork_base.MultiNetworkBaseTest):
     s.connect(("::1", 0xbeef))
     self.CheckSockStatFile("raw6", "::1", 0xff, "::1", 0, 1)
 
-  @unittest.skipUnless(net_test.TargetsAfter("NDR"), "Not yet fixed")
   def testIPv6MTU(self):
     """Tests IPV6_RECVERR and path MTU discovery on ping sockets.
 
