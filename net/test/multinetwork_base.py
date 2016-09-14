@@ -443,6 +443,7 @@ class MultiNetworkBaseTest(net_test.NetworkTest):
       raise ValueError("Unknown interface selection mode %s" % mode)
 
   def BuildSocket(self, version, constructor, netid, routing_mode):
+    if version == 5: version = 6
     s = constructor(self.GetProtocolFamily(version))
 
     if routing_mode not in [None, "uid"]:

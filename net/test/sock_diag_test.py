@@ -643,14 +643,67 @@ class SockDestroyUdpTest(SockDiagBaseTest):
 
   def testClosesUdpSockets(self):
     self.socketpairs = self._CreateLotsOfSockets(SOCK_DGRAM)
-    for (addr, sport, dport), socketpair in self.socketpairs.iteritems():
+    for _, socketpair in self.socketpairs.iteritems():
       s1, s2 = socketpair
+
       self.assertSocketConnected(s1)
       self.sock_diag.CloseSocketFromFd(s1)
       self.assertSocketClosed(s1)
+
       self.assertSocketConnected(s2)
       self.sock_diag.CloseSocketFromFd(s2)
       self.assertSocketClosed(s2)
+
+  def BindToRandomPort(self, s, addr):
+    ATTEMPTS = 20
+    for i in xrange(20):
+      port = random.randrange(1024, 65535)
+      try:
+        s.bind((addr, port))
+        return port
+      except error, e:
+        if e.errno != EADDRINUSE:
+          raise e
+    raise ValueError("Could not find a free port on %s after %d attempts" %
+                     (addr, ATTEMPTS))
+
+  def testSocketAddressesAfterClose(self):
+    for version in 4, 5, 6:
+      netid = random.choice(self.NETIDS)
+      dst = self.GetRemoteAddress(version)
+      family = {4: AF_INET, 5: AF_INET6, 6: AF_INET6}[version]
+      unspec = {4: "0.0.0.0", 5: "::", 6: "::"}[version]
+
+      # Closing a socket that was not explicitly bound (i.e., bound via
+      # connect(), not bind()) clears the source address and port.
+      s = self.BuildSocket(version, net_test.UDPSocket, netid, "mark")
+      self.SelectInterface(s, netid, "mark")
+      s.connect((dst, 53))
+      self.sock_diag.CloseSocketFromFd(s)
+      self.assertEqual((unspec, 0), s.getsockname()[:2])
+
+      # Closing a socket bound to an IP address leaves the address as is.
+      s = self.BuildSocket(version, net_test.UDPSocket, netid, "mark")
+      src = self.MyAddress(version, netid)
+      s.bind((src, 0))
+      s.connect((dst, 53))
+      port = s.getsockname()[1]
+      self.sock_diag.CloseSocketFromFd(s)
+      self.assertEqual((src, 0), s.getsockname()[:2])
+
+      # Closing a socket bound to a port leaves the port as is.
+      s = self.BuildSocket(version, net_test.UDPSocket, netid, "mark")
+      port = self.BindToRandomPort(s, "")
+      s.connect((dst, 53))
+      self.sock_diag.CloseSocketFromFd(s)
+      self.assertEqual((unspec, port), s.getsockname()[:2])
+
+      # Closing a socket bound to IP address and port leaves both as is.
+      s = self.BuildSocket(version, net_test.UDPSocket, netid, "mark")
+      src = self.MyAddress(version, netid)
+      port = self.BindToRandomPort(s, src)
+      self.sock_diag.CloseSocketFromFd(s)
+      self.assertEqual((src, port), s.getsockname()[:2])
 
   def testReadInterrupted(self):
     """Tests that read() is interrupted by SOCK_DESTROY."""
