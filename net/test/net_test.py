@@ -203,12 +203,17 @@ def CreateSocketPair(family, socktype, addr):
   listensock = socket(family, socktype, 0)
   listensock.bind((addr, 0))
   addr = listensock.getsockname()
-  listensock.listen(1)
+  if socktype == SOCK_STREAM:
+    listensock.listen(1)
   clientsock.connect(addr)
-  acceptedsock, _ = listensock.accept()
-  DisableFinWait(clientsock)
-  DisableFinWait(acceptedsock)
-  listensock.close()
+  if socktype == SOCK_STREAM:
+    acceptedsock, _ = listensock.accept()
+    DisableFinWait(clientsock)
+    DisableFinWait(acceptedsock)
+    listensock.close()
+  else:
+    listensock.connect(addr)
+    acceptedsock = listensock
   return clientsock, acceptedsock
 
 
