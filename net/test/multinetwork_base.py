@@ -430,6 +430,7 @@ class MultiNetworkBaseTest(net_test.NetworkTest):
 
   def SelectInterface(self, s, netid, mode):
     if mode == "uid":
+      # TODO: use fchown.
       raise ValueError("Can't change UID on an existing socket")
     elif mode == "mark":
       self.SetSocketMark(s, netid)
