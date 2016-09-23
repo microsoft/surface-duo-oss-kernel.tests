@@ -78,7 +78,8 @@ class SockDiagBaseTest(multinetwork_base.MultiNetworkBaseTest):
     for sock in socketpair:
       self.assertSocketClosed(sock)
 
-  def assertSockDiagMatchesSocket(self, s, diag_msg):
+  def assertSockInfoMatchesSocket(self, s, info):
+    diag_msg, attrs = info
     family = s.getsockopt(net_test.SOL_SOCKET, net_test.SO_DOMAIN)
     self.assertEqual(diag_msg.family, family)
 
@@ -134,7 +135,7 @@ class SockDiagTest(SockDiagBaseTest):
     for sock in socketpair:
       diag_msg = self.sock_diag.FindSockDiagFromFd(sock)
       diag_req = self.sock_diag.DiagReqFromDiagMsg(diag_msg, IPPROTO_TCP)
-      self.sock_diag.GetSockDiag(diag_req)
+      self.sock_diag.GetSockInfo(diag_req)
       # No errors? Good.
 
   def testFindsAllMySockets(self):
@@ -162,17 +163,16 @@ class SockDiagTest(SockDiagBaseTest):
     for socketpair in socketpairs:
       for sock in socketpair:
         # Check that we can find a diag_msg by scanning a dump.
-        self.assertSockDiagMatchesSocket(
+        self.assertSockInfoMatchesSocket(
             sock,
-            self.sock_diag.FindSockDiagFromFd(sock))
+            self.sock_diag.FindSockInfoFromFd(sock))
         cookie = self.sock_diag.FindSockDiagFromFd(sock).id.cookie
 
         # Check that we can find a diag_msg once we know the cookie.
         req = self.sock_diag.DiagReqFromSocket(sock)
         req.id.cookie = cookie
-        diag_msg = self.sock_diag.GetSockDiag(req)
-        req.states = 1 << diag_msg.state
-        self.assertSockDiagMatchesSocket(sock, diag_msg)
+        info = self.sock_diag.GetSockInfo(req)
+        self.assertSockInfoMatchesSocket(sock, info)
 
   def testBytecodeCompilation(self):
     # pylint: disable=bad-whitespace
@@ -474,14 +474,14 @@ class SockDestroyTcpTest(tcp_test.TcpBaseTest, SockDiagBaseTest):
       net_test.EnableFinWait(self.accepted)
       self.accepted.close()
       diag_req.states = 1 << tcp_test.TCP_FIN_WAIT1
-      diag_msg = self.sock_diag.GetSockDiag(diag_req)
+      diag_msg, attrs = self.sock_diag.GetSockInfo(diag_req)
       self.assertEquals(tcp_test.TCP_FIN_WAIT1, diag_msg.state)
       desc, fin = self.FinPacket()
       self.ExpectPacketOn(self.netid, "Closing FIN_WAIT1 socket", fin)
 
       # Destroy the socket and expect no RST.
       self.CheckRstOnClose(None, diag_req, False, "Closing FIN_WAIT1 socket")
-      diag_msg = self.sock_diag.GetSockDiag(diag_req)
+      diag_msg, attrs = self.sock_diag.GetSockInfo(diag_req)
 
       # The socket is still there in FIN_WAIT1: SOCK_DESTROY did nothing
       # because userspace had already closed it.
@@ -490,14 +490,14 @@ class SockDestroyTcpTest(tcp_test.TcpBaseTest, SockDiagBaseTest):
       # ACK the FIN so we don't trip over retransmits in future tests.
       finversion = 4 if version == 5 else version
       desc, finack = packets.ACK(finversion, self.remoteaddr, self.myaddr, fin)
-      diag_msg = self.sock_diag.GetSockDiag(diag_req)
+      diag_msg, attrs = self.sock_diag.GetSockInfo(diag_req)
       self.ReceivePacketOn(self.netid, finack)
 
       # See if we can find the resulting FIN_WAIT2 socket. This does not appear
       # to work on 3.10.
       if net_test.LINUX_VERSION >= (3, 18):
         diag_req.states = 1 << tcp_test.TCP_FIN_WAIT2
-        diag_msg = self.sock_diag.FindSockDiagFromReq(diag_req)
+        diag_msg, attrs = self.sock_diag.FindSockInfoFromReq(diag_req)
         self.assertEquals(tcp_test.TCP_FIN_WAIT2, diag_msg.state)
 
 
@@ -531,27 +531,27 @@ class SockDestroyTcpTest(tcp_test.TcpBaseTest, SockDiagBaseTest):
 
     for child in children:
       if can_close_children:
-        self.sock_diag.GetSockDiag(child)  # No errors? Good, child found.
+        self.sock_diag.GetSockInfo(child)  # No errors? Good, child found.
       else:
-        self.assertRaisesErrno(ENOENT, self.sock_diag.GetSockDiag, child)
+        self.assertRaisesErrno(ENOENT, self.sock_diag.GetSockInfo, child)
 
     def CloseParent(expect_reset):
       msg = "Closing parent IPv%d %s socket %s child" % (
           version, statename, "before" if parent_first else "after")
       self.CheckRstOnClose(self.s, None, expect_reset, msg)
-      self.assertRaisesErrno(ENOENT, self.sock_diag.GetSockDiag, parent)
+      self.assertRaisesErrno(ENOENT, self.sock_diag.GetSockInfo, parent)
 
     def CheckChildrenClosed():
       for child in children:
-        self.assertRaisesErrno(ENOENT, self.sock_diag.GetSockDiag, child)
+        self.assertRaisesErrno(ENOENT, self.sock_diag.GetSockInfo, child)
 
     def CloseChildren():
       for child in children:
         msg = "Closing child IPv%d %s socket %s parent" % (
             version, statename, "after" if parent_first else "before")
-        self.sock_diag.GetSockDiag(child)
+        self.sock_diag.GetSockInfo(child)
         self.CheckRstOnClose(None, child, is_established, msg)
-        self.assertRaisesErrno(ENOENT, self.sock_diag.GetSockDiag, child)
+        self.assertRaisesErrno(ENOENT, self.sock_diag.GetSockInfo, child)
       CheckChildrenClosed()
 
     if parent_first:
@@ -695,20 +695,20 @@ class SockDiagMarkTest(tcp_test.TcpBaseTest, SockDiagBaseTest):
     instructions = [
         (sock_diag.INET_DIAG_BC_MARK_COND, 1, 2, (0x1234, 0xfffe)),
     ]
-    diag_msgs = self.FilterEstablishedSockets(instructions)
-    self.assertSamePorts([port1, port2], diag_msgs)
+    infos = self.FilterEstablishedSockets(instructions)
+    self.assertSamePorts([port1, port2], infos)
 
     instructions = [
         (sock_diag.INET_DIAG_BC_MARK_COND, 1, 2, (0x1235, 0xffff)),
     ]
-    diag_msgs = self.FilterEstablishedSockets(instructions)
-    self.assertSockDiagMatchesSocket(s2, diag_msgs[0][0])
+    infos = self.FilterEstablishedSockets(instructions)
+    self.assertSockInfoMatchesSocket(s2, infos[0])
 
     instructions = [
         (sock_diag.INET_DIAG_BC_MARK_COND, 1, 2, (0x0, 0x0)),
     ]
-    diag_msgs = self.FilterEstablishedSockets(instructions)
-    self.assertSamePorts([port1, port2], diag_msgs)
+    infos = self.FilterEstablishedSockets(instructions)
+    self.assertSamePorts([port1, port2], infos)
 
     instructions = [
         (sock_diag.INET_DIAG_BC_MARK_COND, 1, 2, (0xfff0000, 0xf0fed00)),
