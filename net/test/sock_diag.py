@@ -298,6 +298,9 @@ class SockDiag(netlink.NetlinkSocket):
       return "???"
 
   def Dump(self, diag_req, bytecode):
+    if bytecode:
+      bytecode = self._NlAttr(INET_DIAG_REQ_BYTECODE, bytecode)
+
     out = self._Dump(SOCK_DIAG_BY_FAMILY, diag_req, InetDiagMsg, bytecode)
     return out
 
@@ -308,9 +311,6 @@ class SockDiag(netlink.NetlinkSocket):
     # results in ENOENT.
     if sock_id is None:
       sock_id = self._EmptyInetDiagSockId()
-
-    if bytecode:
-      bytecode = self._NlAttr(INET_DIAG_REQ_BYTECODE, bytecode)
 
     sockets = []
     for family in [AF_INET, AF_INET6]:
