@@ -671,7 +671,8 @@ class SockDiagMarkTest(tcp_test.TcpBaseTest, SockDiagBaseTest):
         a52e95a net: diag: allow socket bytecode filters to match socket marks
   """
 
-  def FilterEstablishedSockets(self, instructions):
+  def FilterEstablishedSockets(self, mark, mask):
+    instructions = [(sock_diag.INET_DIAG_BC_MARK_COND, 1, 2, (mark, mask))]
     bytecode = self.sock_diag.PackBytecode(instructions)
     return self.sock_diag.DumpAllInetSockets(
         IPPROTO_TCP, bytecode, states=(1 << tcp_test.TCP_ESTABLISHED))
@@ -681,43 +682,61 @@ class SockDiagMarkTest(tcp_test.TcpBaseTest, SockDiagBaseTest):
     actual = sorted([msg[0].id.sport for msg in diag_msgs])
     self.assertEquals(expected, actual)
 
-  def testMarkMasking(self):
+  def SockInfoMatchesSocket(self, s, info):
+    try:
+      self.assertSockInfoMatchesSocket(s, info)
+      return True
+    except AssertionError:
+      return False
+
+  @staticmethod
+  def SocketDescription(s):
+    return "%s -> %s" % (str(s.getsockname()), str(s.getpeername()))
+
+  def assertFoundSockets(self, infos, sockets):
+    matches = {}
+    for s in sockets:
+      match = None
+      for info in infos:
+        if self.SockInfoMatchesSocket(s, info):
+          if match:
+            self.fail("Socket %s matched both %s and %s" %
+                      (self.SocketDescription(s), match, info))
+          matches[s] = info
+      self.assertTrue(s in matches, "Did not find socket %s in dump" %
+                      self.SocketDescription(s))
+
+    for i in infos:
+       if i not in matches.values():
+         self.fail("Too many sockets in dump, first unexpected: %s" % str(i))
+
+  def testMarkBytecode(self):
     family, addr = random.choice([
         (AF_INET, "127.0.0.1"),
         (AF_INET6, "::1"),
         (AF_INET6, "::ffff:127.0.0.1")])
     s1, s2 = net_test.CreateSocketPair(family, SOCK_STREAM, addr)
-    port1 = s1.getsockname()[1]
-    port2 = s2.getsockname()[1]
     s1.setsockopt(SOL_SOCKET, net_test.SO_MARK, 0xfff1234)
     s2.setsockopt(SOL_SOCKET, net_test.SO_MARK, 0xf0f1235)
 
-    instructions = [
-        (sock_diag.INET_DIAG_BC_MARK_COND, 1, 2, (0x1234, 0xfffe)),
-    ]
-    infos = self.FilterEstablishedSockets(instructions)
-    self.assertSamePorts([port1, port2], infos)
+    infos = self.FilterEstablishedSockets(0x1234, 0xffff)
+    self.assertFoundSockets(infos, [s1])
 
-    instructions = [
-        (sock_diag.INET_DIAG_BC_MARK_COND, 1, 2, (0x1235, 0xffff)),
-    ]
-    infos = self.FilterEstablishedSockets(instructions)
-    self.assertSockInfoMatchesSocket(s2, infos[0])
+    infos = self.FilterEstablishedSockets(0x1234, 0xfffe)
+    self.assertFoundSockets(infos, [s1, s2])
 
-    instructions = [
-        (sock_diag.INET_DIAG_BC_MARK_COND, 1, 2, (0x0, 0x0)),
-    ]
-    infos = self.FilterEstablishedSockets(instructions)
-    self.assertSamePorts([port1, port2], infos)
+    infos = self.FilterEstablishedSockets(0x1235, 0xffff)
+    self.assertFoundSockets(infos, [s2])
 
-    instructions = [
-        (sock_diag.INET_DIAG_BC_MARK_COND, 1, 2, (0xfff0000, 0xf0fed00)),
-    ]
-    self.assertEquals(0, len(self.FilterEstablishedSockets(instructions)))
+    infos = self.FilterEstablishedSockets(0x0, 0x0)
+    self.assertFoundSockets(infos, [s1, s2])
+
+    infos = self.FilterEstablishedSockets(0xfff0000, 0xf0fed00)
+    self.assertEquals(0, len(infos))
 
     with net_test.RunAsUid(12345):
         self.assertRaisesErrno(EPERM, self.FilterEstablishedSockets,
-                               instructions)
+                               0xfff0000, 0xf0fed00)
 
 
 if __name__ == "__main__":
