@@ -26,6 +26,7 @@ import unittest
 
 import multinetwork_base
 import net_test
+import netlink
 import packets
 import sock_diag
 import tcp_test
@@ -726,6 +727,32 @@ class SockDestroyUdpTest(SockDiagBaseTest):
       # Check that reads on unconnected sockets are also interrupted.
       self.CloseDuringBlockingCall(s, lambda sock: sock.recv(4096),
                                    ECONNABORTED)
+
+class SockDestroyPermissionTest(SockDiagBaseTest):
+
+  def CheckPermissions(self, socktype):
+    s = socket(AF_INET6, socktype, 0)
+    self.SelectInterface(s, random.choice(self.NETIDS), "mark")
+    if socktype == SOCK_STREAM:
+      s.listen(1)
+      expectedstate = tcp_test.TCP_LISTEN
+    else:
+      s.connect((self.GetRemoteAddress(6), 53))
+      expectedstate = tcp_test.TCP_ESTABLISHED
+
+    with net_test.RunAsUid(12345):
+      self.assertRaisesErrno(
+          EPERM, self.sock_diag.CloseSocketFromFd, s)
+
+    self.sock_diag.CloseSocketFromFd(s)
+    self.assertRaises(ValueError, self.sock_diag.CloseSocketFromFd, s)
+
+
+  def testUdp(self):
+    self.CheckPermissions(SOCK_DGRAM)
+
+  def testTcp(self):
+    self.CheckPermissions(SOCK_STREAM)
 
 
 @unittest.skipUnless(net_test.LINUX_VERSION >= (4, 9, 0), "does not yet exist")
