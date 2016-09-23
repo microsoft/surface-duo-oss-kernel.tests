@@ -22,6 +22,7 @@ import errno
 from socket import *  # pylint: disable=wildcard-import
 import struct
 
+import csocket
 import cstruct
 import net_test
 import netlink
@@ -141,6 +142,18 @@ class SockDiag(netlink.NetlinkSocket):
       data = struct.unpack("=I", nla_data)[0]
     elif name == "INET_DIAG_REQ_BYTECODE":
       data = self.DecodeBytecode(nla_data)
+    elif name in ["INET_DIAG_LOCALS", "INET_DIAG_PEERS"]:
+      data = []
+      while len(nla_data):
+        # The SCTP diag code always appears to copy sizeof(sockaddr_storage)
+        # bytes, but does so from a union sctp_addr which is at most as long
+        # as a sockaddr_in6.
+        addr, nla_data = cstruct.Read(nla_data, csocket.SockaddrStorage)
+        if addr.family == AF_INET:
+          addr = csocket.SockaddrIn(addr.Pack())
+        elif addr.family == AF_INET6:
+          addr = csocket.SockaddrIn6(addr.Pack())
+        data.append(addr)
     else:
       data = nla_data
 
