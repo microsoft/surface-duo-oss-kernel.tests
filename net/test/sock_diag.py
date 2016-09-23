@@ -58,6 +58,7 @@ INET_DIAG_SKV6ONLY = 11
 INET_DIAG_LOCALS = 12
 INET_DIAG_PEERS = 13
 INET_DIAG_PAD = 14
+INET_DIAG_MARK = 15
 
 # Bytecode operations.
 INET_DIAG_BC_NOP = 0
@@ -136,6 +137,8 @@ class SockDiag(netlink.NetlinkSocket):
       data = TcpInfo(nla_data)
     elif name == "INET_DIAG_SKMEMINFO":
       data = SkMeminfo(nla_data)
+    elif name == "INET_DIAG_MARK":
+      data = struct.unpack("=I", nla_data)[0]
     elif name == "INET_DIAG_REQ_BYTECODE":
       data = self.DecodeBytecode(nla_data)
     else:
