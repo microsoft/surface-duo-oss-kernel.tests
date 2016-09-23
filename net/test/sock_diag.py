@@ -358,20 +358,24 @@ class SockDiag(netlink.NetlinkSocket):
     sock_id = InetDiagSockId((sport, dport, src, dst, iface, "\x00" * 8))
     return InetDiagReqV2((family, protocol, 0, 0xffffffff, sock_id))
 
-  def FindSockDiagFromReq(self, req):
+  def FindSockInfoFromReq(self, req):
     for diag_msg, attrs in self.Dump(req, ""):
-      return diag_msg
+      return diag_msg, attrs
     raise ValueError("Dump of %s returned no sockets" % req)
+
+  def FindSockInfoFromFd(self, s):
+    """Gets a diag_msg and attrs from the kernel for the specified socket."""
+    req = self.DiagReqFromSocket(s)
+    return self.FindSockInfoFromReq(req)
 
   def FindSockDiagFromFd(self, s):
     """Gets an InetDiagMsg from the kernel for the specified socket."""
-    req = self.DiagReqFromSocket(s)
-    return self.FindSockDiagFromReq(req)
+    return self.FindSockInfoFromFd(s)[0]
 
-  def GetSockDiag(self, req):
-    """Gets an InetDiagMsg from the kernel for the specified request."""
+  def GetSockInfo(self, req):
+    """Gets a diag_msg and attrs from the kernel for the specified request."""
     self._SendNlRequest(SOCK_DIAG_BY_FAMILY, req.Pack(), netlink.NLM_F_REQUEST)
-    return self._GetMsg(InetDiagMsg)[0]
+    return self._GetMsg(InetDiagMsg)
 
   @staticmethod
   def DiagReqFromDiagMsg(d, protocol):
@@ -383,7 +387,7 @@ class SockDiag(netlink.NetlinkSocket):
                         netlink.NLM_F_REQUEST | netlink.NLM_F_ACK)
 
   def CloseSocketFromFd(self, s):
-    diag_msg = self.FindSockDiagFromFd(s)
+    diag_msg, attrs = self.FindSockInfoFromFd(s)
     protocol = s.getsockopt(SOL_SOCKET, net_test.SO_PROTOCOL)
     req = self.DiagReqFromDiagMsg(diag_msg, protocol)
     return self.CloseSocket(req)
