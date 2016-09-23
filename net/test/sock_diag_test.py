@@ -512,7 +512,14 @@ class SockDestroyTcpTest(tcp_test.TcpBaseTest, SockDiagBaseTest):
     req = self.sock_diag.DiagReqFromDiagMsg(d, IPPROTO_TCP)
     req.states = 1 << tcp_test.TCP_SYN_RECV | 1 << tcp_test.TCP_ESTABLISHED
     req.id.cookie = "\x00" * 8
-    children = self.sock_diag.Dump(req, NO_BYTECODE)
+
+    bad_bytecode = self.PackAndCheckBytecode(
+        [(sock_diag.INET_DIAG_BC_MARK_COND, 1, 2, (0xffff, 0xffff))])
+    self.assertEqual([], self.sock_diag.Dump(req, bad_bytecode))
+
+    bytecode = self.PackAndCheckBytecode(
+        [(sock_diag.INET_DIAG_BC_MARK_COND, 1, 2, (self.netid, 0xffff))])
+    children = self.sock_diag.Dump(req, bytecode)
     return [self.sock_diag.DiagReqFromDiagMsg(d, IPPROTO_TCP)
             for d, _ in children]
 
