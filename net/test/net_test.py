@@ -82,29 +82,6 @@ UDP_PAYLOAD = str(scapy.DNS(rd=1,
 AID_INET = 3003
 
 
-# What branch we're running on. Can't pass this in on the command line because
-# unittest.main parses the flags itself.
-NET_TEST_BRANCH = os.getenv("net_test_branch") or ""
-
-def TargetsAfter(target):
-  """Guesses whether the kernel targets a release after the specified one.
-
-  TODO: Find a better mechanism to do this.
-
-  Args:
-    release: A string, such as "M", "N" or "NMR".
-
-  Returns:
-    True the given kernel targets a release later than target.
-  """
-  if target == "NDR":
-    exclude_patterns = ["nyc-security"]
-  else:
-    exclude_patterns = []
-
-  return not any(p in NET_TEST_BRANCH for p in exclude_patterns)
-
-
 def LinuxVersion():
   # Example: "3.4.67-00753-gb7a556f".
   # Get the part before the dash.
