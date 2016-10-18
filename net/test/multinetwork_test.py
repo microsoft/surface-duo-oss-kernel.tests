@@ -216,7 +216,7 @@ class OutgoingTest(multinetwork_base.MultiNetworkBaseTest):
     if use_connect:
       modes = ["oif"]
     else:
-      modes = ["mark", "oif"]
+      modes = ["mark", "oif", "uid"]
       if HAVE_UNICAST_IF:
         modes += ["ucast_oif"]
 
