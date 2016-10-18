@@ -142,6 +142,8 @@ class MultiNetworkBaseTest(net_test.NetworkTest):
 
   @classmethod
   def UidForNetid(cls, netid):
+    if not netid:
+      return 0
     return random.randint(*cls.UidRangeForNetid(netid))
 
   @classmethod
@@ -430,8 +432,7 @@ class MultiNetworkBaseTest(net_test.NetworkTest):
 
   def SelectInterface(self, s, netid, mode):
     if mode == "uid":
-      # TODO: use fchown.
-      raise ValueError("Can't change UID on an existing socket")
+      os.fchown(s.fileno(), self.UidForNetid(netid), -1)
     elif mode == "mark":
       self.SetSocketMark(s, netid)
     elif mode == "oif":
