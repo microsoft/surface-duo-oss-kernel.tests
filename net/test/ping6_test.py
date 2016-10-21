@@ -22,6 +22,7 @@ import posix
 import random
 from socket import *  # pylint: disable=wildcard-import
 import struct
+import sys
 import threading
 import time
 import unittest
@@ -55,10 +56,14 @@ class PingReplyThread(threading.Thread):
   def __init__(self, tun, mymac, routermac, routeraddr):
     super(PingReplyThread, self).__init__()
     self._tun = tun
+    self._started = False
     self._stopped = False
     self._mymac = mymac
     self._routermac = routermac
     self._routeraddr = routeraddr
+
+  def IsStarted(self):
+    return self._started
 
   def Stop(self):
     self._stopped = True
@@ -185,6 +190,7 @@ class PingReplyThread(threading.Thread):
         raise e
 
   def run(self):
+    self._started = True
     while not self._stopped:
       try:
         packet = posix.read(self._tun.fileno(), 4096)
@@ -207,6 +213,28 @@ class PingReplyThread(threading.Thread):
 class Ping6Test(multinetwork_base.MultiNetworkBaseTest):
 
   @classmethod
+  def WaitForReplyThreads(cls):
+    # Wait 2s for the reply threads to start. If they don't, don't blow up, as
+    # that would cause tearDownClass not to be called and thus not clean up
+    # routing configuration, breaking subsequent tests. Instead, just let these
+    # tests fail.
+    _INTERVAL = 0.1
+    _ATTEMPTS = 20
+    for i in xrange(0, _ATTEMPTS):
+      for netid in cls.NETIDS:
+        if all(thread.IsStarted() for thread in cls.reply_threads.values()):
+          return
+        time.sleep(_INTERVAL)
+    msg = "WARNING: reply threads not all started after %.1f seconds\n" % (
+        _ATTEMPTS * _INTERVAL)
+    sys.stderr.write(msg)
+
+  @classmethod
+  def StopReplyThreads(cls):
+    for thread in cls.reply_threads.values():
+      thread.Stop()
+
+  @classmethod
   def setUpClass(cls):
     super(Ping6Test, cls).setUpClass()
     cls.reply_threads = {}
@@ -217,13 +245,13 @@ class Ping6Test(multinetwork_base.MultiNetworkBaseTest):
         cls.RouterMacAddress(netid),
         cls._RouterAddress(netid, 6))
       cls.reply_threads[netid].start()
+    cls.WaitForReplyThreads()
     cls.netid = random.choice(cls.NETIDS)
     cls.SetDefaultNetwork(cls.netid)
 
   @classmethod
   def tearDownClass(cls):
-    for thread in cls.reply_threads.values():
-      thread.Stop()
+    cls.StopReplyThreads()
     cls.ClearDefaultNetwork()
     super(Ping6Test, cls).tearDownClass()
 
@@ -364,7 +392,7 @@ class Ping6Test(multinetwork_base.MultiNetworkBaseTest):
     s = net_test.IPv4PingSocket()
     s.connect(("127.0.0.1", 12345))
     _, port = s.getsockname()
-    scapy.send(GetIPv6Unreachable(port))
+    scapy.send(GetIPv6Unreachable(port), verbose=False)
     # No crash? Good.
 
   def testCrossProtocolCalls(self):
