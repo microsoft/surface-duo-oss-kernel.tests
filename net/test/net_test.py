@@ -115,7 +115,7 @@ def SetNonBlocking(fd):
 # Convenience functions to create sockets.
 def Socket(family, sock_type, protocol):
   s = socket(family, sock_type, protocol)
-  SetSocketTimeout(s, 1000)
+  SetSocketTimeout(s, 5000)
   return s
 
 
