@@ -81,6 +81,9 @@ UDP_PAYLOAD = str(scapy.DNS(rd=1,
 # Unix group to use if we want to open sockets as non-root.
 AID_INET = 3003
 
+# Kernel log verbosity levels.
+KERN_INFO = 6
+
 
 def LinuxVersion():
   # Example: "3.4.67-00753-gb7a556f".
@@ -415,6 +418,14 @@ class NetworkTest(unittest.TestCase):
        _, _, uid, _, _, refcnt, _, extra) = regexp.match(line).groups()
       out.append([src, dst, state, mem, uid, refcnt, extra])
     return out
+
+  @staticmethod
+  def GetConsoleLogLevel():
+    return int(open("/proc/sys/kernel/printk").readline().split()[0])
+
+  @staticmethod
+  def SetConsoleLogLevel(level):
+    return open("/proc/sys/kernel/printk", "w").write("%s\n" % level)
 
 
 if __name__ == "__main__":
