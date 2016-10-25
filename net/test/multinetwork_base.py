@@ -378,6 +378,10 @@ class MultiNetworkBaseTest(net_test.NetworkTest):
     for version in [4, 6]:
       cls.iproute.UnreachableRule(version, True, 1000)
 
+    # Don't print lots of "device foo entered promiscuous mode" warnings.
+    cls.loglevel = cls.GetConsoleLogLevel()
+    cls.SetConsoleLogLevel(net_test.KERN_INFO)
+
     # Uncomment to look around at interface and rule configuration while
     # running in the background. (Once the test finishes running, all the
     # interfaces and rules are gone.)
@@ -394,7 +398,9 @@ class MultiNetworkBaseTest(net_test.NetworkTest):
     for netid in cls.tuns:
       cls._RunSetupCommands(netid, False)
       cls.tuns[netid].close()
+
     cls._RestoreSysctls()
+    cls.SetConsoleLogLevel(cls.loglevel)
 
   def setUp(self):
     self.ClearTunQueues()
