@@ -518,6 +518,29 @@ class MultiNetworkBaseTest(net_test.NetworkTest):
           raise e
     return packets
 
+  def InvalidateDstCache(self, version, remoteaddr, netid):
+    """Invalidates destination cache entries of sockets to remoteaddr.
+
+    Creates and then deletes a route pointing to remoteaddr, which invalidates
+    the destination cache entries of any sockets connected to remoteaddr.
+    The fact that this method actually invalidates destination cache entries is
+    tested by OutgoingTest#testIPv[46]Remarking, which checks that the kernel
+    does not re-route sockets when they are remarked, but does re-route them if
+    this method is called.
+
+    Args:
+      version: The IP version, 4 or 6.
+      remoteaddr: The IP address to temporarily reroute.
+      netid: The netid to add/remove the route to.
+    """
+    iface = self.GetInterfaceName(netid)
+    ifindex = self.ifindices[netid]
+    table = self._TableForNetid(netid)
+    nexthop = self._RouterAddress(netid, version)
+    plen = {4: 32, 6: 128}[version]
+    self.iproute.AddRoute(version, table, remoteaddr, plen, nexthop, ifindex)
+    self.iproute.DelRoute(version, table, remoteaddr, plen, nexthop, ifindex)
+
   def ClearTunQueues(self):
     # Keep reading packets on all netids until we get no packets on any of them.
     waiting = None
