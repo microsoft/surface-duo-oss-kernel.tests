@@ -193,8 +193,13 @@ class MultiNetworkBaseTest(net_test.NetworkTest):
     return net_test.GetLinkAddress(cls.GetInterfaceName(netid), True)
 
   @staticmethod
-  def IPv6Prefix(netid):
-    return "2001:db8:%02x::" % netid
+  def OnlinkPrefixLen(version):
+    return {4: 24, 6: 64}[version]
+
+  @staticmethod
+  def OnlinkPrefix(version, netid):
+    return {4: "10.0.%d.0" % netid,
+            6: "2001:db8:%02x::" % netid}[version]
 
   @staticmethod
   def GetRandomDestination(prefix):
@@ -246,8 +251,8 @@ class MultiNetworkBaseTest(net_test.NetworkTest):
                             retranstimer=retranstimer,
                             routerlifetime=routerlifetime) /
           scapy.ICMPv6NDOptSrcLLAddr(lladdr=macaddr) /
-          scapy.ICMPv6NDOptPrefixInfo(prefix=cls.IPv6Prefix(netid),
-                                      prefixlen=64,
+          scapy.ICMPv6NDOptPrefixInfo(prefix=cls.OnlinkPrefix(6, netid),
+                                      prefixlen=cls.OnlinkPrefixLen(6),
                                       L=1, A=1,
                                       validlifetime=validity,
                                       preferredlifetime=validity))
@@ -281,25 +286,31 @@ class MultiNetworkBaseTest(net_test.NetworkTest):
       #
       # Since deleting addresses also causes routes to be deleted, we need to
       # be careful with ordering or the delete commands will fail with ENOENT.
+      #
+      # A real Android system will have both IPv4 and IPv6 routes for
+      # directly-connected subnets in the per-interface routing tables. Ensure
+      # we create those as well.
       do_routing = (version == 4 or cls.AUTOCONF_TABLE_OFFSET is None)
       if is_add:
         if version == 4:
-          cls.iproute.AddAddress(cls._MyIPv4Address(netid), 24, ifindex)
+          cls.iproute.AddAddress(cls._MyIPv4Address(netid),
+                                 cls.OnlinkPrefixLen(4), ifindex)
           cls.iproute.AddNeighbour(version, router, macaddr, ifindex)
         if do_routing:
+          cls.iproute.AddRoute(version, table,
+                               cls.OnlinkPrefix(version, netid),
+                               cls.OnlinkPrefixLen(version), None, ifindex)
           cls.iproute.AddRoute(version, table, "default", 0, router, ifindex)
-          if version == 6:
-            cls.iproute.AddRoute(version, table,
-                                 cls.IPv6Prefix(netid), 64, None, ifindex)
       else:
         if do_routing:
           cls.iproute.DelRoute(version, table, "default", 0, router, ifindex)
-          if version == 6:
-            cls.iproute.DelRoute(version, table,
-                                 cls.IPv6Prefix(netid), 64, None, ifindex)
+          cls.iproute.DelRoute(version, table,
+                               cls.OnlinkPrefix(version, netid),
+                               cls.OnlinkPrefixLen(version), None, ifindex)
         if version == 4:
           cls.iproute.DelNeighbour(version, router, macaddr, ifindex)
-          cls.iproute.DelAddress(cls._MyIPv4Address(netid), 24, ifindex)
+          cls.iproute.DelAddress(cls._MyIPv4Address(netid),
+                                 cls.OnlinkPrefixLen(4), ifindex)
 
   @classmethod
   def SetDefaultNetwork(cls, netid):
@@ -367,6 +378,9 @@ class MultiNetworkBaseTest(net_test.NetworkTest):
     for version in [4, 6]:
       cls._SetICMPRatelimit(version, 0)
 
+    for version in [4, 6]:
+      cls.iproute.UnreachableRule(version, True, cls.PRIORITY_UNREACHABLE)
+
     for netid in cls.NETIDS:
       cls.tuns[netid] = cls.CreateTunInterface(netid)
       iface = cls.GetInterfaceName(netid)
@@ -374,9 +388,6 @@ class MultiNetworkBaseTest(net_test.NetworkTest):
 
       cls.SendRA(netid)
       cls._RunSetupCommands(netid, True)
-
-    for version in [4, 6]:
-      cls.iproute.UnreachableRule(version, True, 1000)
 
     # Don't print lots of "device foo entered promiscuous mode" warnings.
     cls.loglevel = cls.GetConsoleLogLevel()
@@ -391,7 +402,7 @@ class MultiNetworkBaseTest(net_test.NetworkTest):
   def tearDownClass(cls):
     for version in [4, 6]:
       try:
-        cls.iproute.UnreachableRule(version, False, 1000)
+        cls.iproute.UnreachableRule(version, False, cls.PRIORITY_UNREACHABLE)
       except IOError:
         pass
 
