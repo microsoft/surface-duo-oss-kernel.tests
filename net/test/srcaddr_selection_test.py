@@ -241,7 +241,7 @@ class ValidBeforeOptimisticTest(MultiInterfaceSourceAddressSelectionTest):
   def testModifiedRfc6724Behaviour(self):
     # [3]  Add a valid IPv6 address to this interface and verify it is
     # selected as the source address.
-    preferred_ip = self.IPv6Prefix(self.test_netid) + "cafe"
+    preferred_ip = self.OnlinkPrefix(6, self.test_netid) + "cafe"
     self.iproute.AddAddress(preferred_ip, 64, self.test_ifindex)
     self.assertAddressHasExpectedAttributes(
         preferred_ip, self.test_ifindex, iproute.IFA_F_PERMANENT)
@@ -313,7 +313,8 @@ class NoNsFromOptimisticTest(MultiInterfaceSourceAddressSelectionTest):
     # [4]  Send to an on-link destination and observe a Neighbor Solicitation
     # packet with a source address that is NOT the optimistic address.
     # In this setup, the only usable address is the link-local address.
-    onlink_dest = self.GetRandomDestination(self.IPv6Prefix(self.test_netid))
+    onlink_dest = self.GetRandomDestination(
+        self.OnlinkPrefix(6, self.test_netid))
     self.SendWithSourceAddress(self.test_ip, self.test_netid, onlink_dest)
 
     if net_test.LinuxVersion() >= (3, 18, 0):
