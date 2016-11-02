@@ -611,7 +611,7 @@ class RATest(multinetwork_base.MultiNetworkBaseTest):
       # dstaddr can never be our address because GetRandomDestination only fills
       # in the lower 32 bits, but our address has 0xff in the byte before that
       # (since it's constructed from the EUI-64 and so has ff:fe in the middle).
-      dstaddr = self.GetRandomDestination(self.IPv6Prefix(netid))
+      dstaddr = self.GetRandomDestination(self.OnlinkPrefix(6, netid))
       s.sendto(UDP_PAYLOAD, (dstaddr, 53))
 
       # Expect an NS for that destination on the interface.
