@@ -523,12 +523,7 @@ class TCPAcceptTest(InboundMarkingTest):
     for syncookies in [0, 2]:
       for mode in modes:
         for netid, iif, ip_if, myaddr, remoteaddr in self.Combinations(version):
-          if mode == self.MODE_UID:
-            listensocket = self.BuildSocket(6, net_test.TCPSocket, netid, mode)
-            listensocket.listen(100)
-          else:
-            listensocket = self.listensocket
-
+          listensocket = self.listensocket
           listenport = listensocket.getsockname()[1]
 
           accept_sysctl = 1 if mode == self.MODE_INCOMING_MARK else 0
@@ -540,6 +535,9 @@ class TCPAcceptTest(InboundMarkingTest):
 
           mark = netid if mode == self.MODE_EXPLICIT_MARK else 0
           self.SetSocketMark(listensocket, mark)
+
+          uid = self.UidForNetid(netid) if mode == self.MODE_UID else 0
+          os.fchown(listensocket.fileno(), uid, -1)
 
           # Generate the packet here instead of in the outer loop, so
           # subsequent TCP connections use different source ports and
