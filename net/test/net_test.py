@@ -25,6 +25,8 @@ import unittest
 
 from scapy import all as scapy
 
+import csocket
+
 # TODO: Move these to csocket.py.
 SOL_IPV6 = 41
 IP_RECVERR = 11
@@ -84,18 +86,7 @@ AID_INET = 3003
 # Kernel log verbosity levels.
 KERN_INFO = 6
 
-
-def LinuxVersion():
-  # Example: "3.4.67-00753-gb7a556f".
-  # Get the part before the dash.
-  version = os.uname()[2].split("-")[0]
-  # Convert it into a tuple such as (3, 4, 67). That allows comparing versions
-  # using < and >, since tuples are compared lexicographically.
-  version = tuple(int(i) for i in version.split("."))
-  return version
-
-
-LINUX_VERSION = LinuxVersion()
+LINUX_VERSION = csocket.LinuxVersion()
 
 
 def SetSocketTimeout(sock, ms):
