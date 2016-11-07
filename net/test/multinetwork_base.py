@@ -65,7 +65,8 @@ def HaveUidRouting():
   # Dump all the rules. If we find a rule using the UID range selector, then the
   # kernel supports UID range routing.
   rules = iproute.IPRoute().DumpRules(6)
-  result = any("FRA_UID_START" in attrs for rule, attrs in rules)
+  attrname = "FRA_UID_RANGE" if not iproute.LEGACY_UID_ROUTING else "FRA_UID_START"
+  result = any(attrname in attrs for rule, attrs in rules)
 
   # Delete the rule.
   if result:
