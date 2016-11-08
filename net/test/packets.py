@@ -27,7 +27,6 @@ TCP_RST = 4
 TCP_PSH = 8
 TCP_ACK = 16
 
-TCP_SEQ = 1692871236
 TCP_WINDOW = 14400
 
 PING_IDENT = 0xff19
@@ -74,10 +73,12 @@ def UDPWithOptions(version, srcaddr, dstaddr, sport=0):
               UDP_PAYLOAD)
   return ("UDPv%d packet with options" % version, packet)
 
-def SYN(dport, version, srcaddr, dstaddr, sport=0, seq=TCP_SEQ):
+def SYN(dport, version, srcaddr, dstaddr, sport=0, seq=-1):
   ip = _GetIpLayer(version)
   if sport == 0:
     sport = _RandomPort()
+  if seq == -1:  # Can't use None because it means unspecified.
+    seq = random.getrandbits(32)
   return ("TCP SYN",
           ip(src=srcaddr, dst=dstaddr) /
           scapy.TCP(sport=sport, dport=dport,
