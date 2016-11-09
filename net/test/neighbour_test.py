@@ -203,7 +203,7 @@ class NeighbourTest(multinetwork_base.MultiNetworkBaseTest):
 
     # Wait for the probe interval, then check that we're in PROBE, and that the
     # kernel has notified us.
-    self.SleepMs(self.DELAY_TIME_MS)
+    self.SleepMs(self.DELAY_TIME_MS * 1.1)
     self.ExpectNeighbourNotification(router6, NUD_PROBE)
     self.assertNeighbourState(NUD_PROBE, router6)
     self.ExpectUnicastProbe(router6)
@@ -225,7 +225,7 @@ class NeighbourTest(multinetwork_base.MultiNetworkBaseTest):
     # Send a packet, and verify we go into DELAY and then to PROBE.
     s.send(net_test.UDP_PAYLOAD)
     self.assertNeighbourState(NUD_DELAY, router6)
-    self.SleepMs(self.DELAY_TIME_MS)
+    self.SleepMs(self.DELAY_TIME_MS * 1.1)
     self.assertNeighbourState(NUD_PROBE, router6)
     self.ExpectNeighbourNotification(router6, NUD_PROBE)
 
