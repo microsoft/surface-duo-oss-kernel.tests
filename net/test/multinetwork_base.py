@@ -666,7 +666,8 @@ class MultiNetworkBaseTest(net_test.NetworkTest):
     for dest_ip_netid in self.tuns:
       ip_if = self.GetInterfaceName(dest_ip_netid)
       myaddr = self.MyAddress(version, dest_ip_netid)
-      remoteaddr = self.GetRemoteAddress(version)
+      prefix = {4: "172.22.", 6: "2001:db8:aaaa::"}[version]
+      remoteaddr = self.GetRandomDestination(prefix)
 
       # ... coming in on all our interfaces.
       for netid in self.tuns:
