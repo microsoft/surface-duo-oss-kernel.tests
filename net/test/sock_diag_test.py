@@ -504,8 +504,10 @@ class SockDestroyTcpTest(tcp_test.TcpBaseTest, SockDiagBaseTest):
       # to work on 3.10.
       if net_test.LINUX_VERSION >= (3, 18):
         diag_req.states = 1 << tcp_test.TCP_FIN_WAIT2
-        diag_msg, attrs = self.sock_diag.FindSockInfoFromReq(diag_req)
-        self.assertEquals(tcp_test.TCP_FIN_WAIT2, diag_msg.state)
+        infos = self.sock_diag.Dump(diag_req, "")
+        self.assertTrue(any(diag_msg.state == tcp_test.TCP_FIN_WAIT2
+                            for diag_msg, attrs in infos),
+                        "Expected to find FIN_WAIT2 socket in %s" % infos)
 
   def FindChildSockets(self, s):
     """Finds the SYN_RECV child sockets of a given listening socket."""

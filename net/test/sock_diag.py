@@ -19,6 +19,7 @@
 # pylint: disable=g-bad-todo
 
 import errno
+import os
 from socket import *  # pylint: disable=wildcard-import
 import struct
 
@@ -374,15 +375,21 @@ class SockDiag(netlink.NetlinkSocket):
     sock_id = InetDiagSockId((sport, dport, src, dst, iface, "\x00" * 8))
     return InetDiagReqV2((family, protocol, 0, 0xffffffff, sock_id))
 
-  def FindSockInfoFromReq(self, req):
-    for diag_msg, attrs in self.Dump(req, ""):
-      return diag_msg, attrs
-    raise ValueError("Dump of %s returned no sockets" % req)
-
   def FindSockInfoFromFd(self, s):
     """Gets a diag_msg and attrs from the kernel for the specified socket."""
     req = self.DiagReqFromSocket(s)
-    return self.FindSockInfoFromReq(req)
+    # The kernel doesn't use idiag_src and idiag_dst when dumping sockets, it
+    # only uses them when targeting a specific socket with a cookie. Check the
+    # the inode number to ensure we don't mistakenly match another socket on
+    # the same port but with a different IP address.
+    inode = os.fstat(s.fileno()).st_ino
+    results = self.Dump(req, "")
+    if len(results) == 0:
+      raise ValueError("Dump of %s returned no sockets" % req)
+    for diag_msg, attrs in results:
+      if diag_msg.inode == inode:
+        return diag_msg, attrs
+    raise ValueError("Dump of %s did not contain inode %d" % (req, inode))
 
   def FindSockDiagFromFd(self, s):
     """Gets an InetDiagMsg from the kernel for the specified socket."""
