@@ -176,14 +176,14 @@ def CreateSocketPair(family, socktype, addr):
   addr = listensock.getsockname()
   if socktype == SOCK_STREAM:
     listensock.listen(1)
-  clientsock.connect(addr)
+  clientsock.connect(listensock.getsockname())
   if socktype == SOCK_STREAM:
     acceptedsock, _ = listensock.accept()
     DisableFinWait(clientsock)
     DisableFinWait(acceptedsock)
     listensock.close()
   else:
-    listensock.connect(addr)
+    listensock.connect(clientsock.getsockname())
     acceptedsock = listensock
   return clientsock, acceptedsock
 
