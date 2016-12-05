@@ -670,6 +670,7 @@ class RATest(multinetwork_base.MultiNetworkBaseTest):
 class PMTUTest(InboundMarkingTest):
 
   PAYLOAD_SIZE = 1400
+  dstaddrs = set()
 
   def GetSocketMTU(self, version, s):
     if version == 6:
@@ -706,7 +707,15 @@ class PMTUTest(InboundMarkingTest):
             4: ("172.19.", "172.16.9.12"),
             6: ("2001:db8::", "2001:db8::1")
         }[version]
+
+        # Run this test often enough (e.g., in presubmits), and eventually
+        # we'll be unlucky enough to pick the same address twice, in which
+        # case the test will fail because the kernel will already have seen
+        # the lower MTU. Don't do this.
         dstaddr = self.GetRandomDestination(dst_prefix)
+        while dstaddr in self.dstaddrs:
+          dstaddr = self.GetRandomDestination(dst_prefix)
+        self.dstaddrs.add(dstaddr)
 
         if use_connect:
           s.connect((dstaddr, 1234))
@@ -716,7 +725,8 @@ class PMTUTest(InboundMarkingTest):
         # Send a packet and receive a packet too big.
         SendBigPacket(version, s, dstaddr, netid, payload)
         received = self.ReadAllPacketsOn(netid)
-        self.assertEquals(1, len(received))
+        self.assertEquals(1, len(received),
+                          "unexpected packets: %s" % received[1:])
         _, toobig = packets.ICMPPacketTooBig(version, intermediate, srcaddr,
                                              received[0])
         self.ReceivePacketOn(netid, toobig)
