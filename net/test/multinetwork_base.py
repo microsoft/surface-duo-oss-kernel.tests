@@ -205,7 +205,7 @@ class MultiNetworkBaseTest(net_test.NetworkTest):
   @staticmethod
   def GetRandomDestination(prefix):
     if "." in prefix:
-      return prefix + "%d.%d" % (random.randint(0, 31), random.randint(0, 255))
+      return prefix + "%d.%d" % (random.randint(0, 255), random.randint(0, 255))
     else:
       return prefix + "%x:%x" % (random.randint(0, 65535),
                                  random.randint(0, 65535))
