@@ -55,15 +55,27 @@ CONFIG_SCRIPT=${KERNEL_DIR}/scripts/config
 CONFIG_FILE=${OUT_DIR}/.config
 consolemode=
 testmode=
-if [ "$1" = "--builder" ]; then
-  consolemode="con=null,fd:1"
-  testmode=builder
-  shift
-fi
-test=$1
+blockdevice=ubda
+nobuild=0
+while [ -n "$1" ]; do
+  if [ "$1" = "--builder" ]; then
+    consolemode="con=null,fd:1"
+    testmode=builder
+    shift
+  elif [ "$1" == "--readonly" ]; then
+    blockdevice="${blockdevice}r"
+    shift
+  elif [ "$1" == "--nobuild" ]; then
+    nobuild=1
+    shift
+  else
+    test=$1
+    break  # The test file must be the last argument.
+  fi
+done
 
-if [ -z "$test" ]; then
-  echo "Usage: $0 [--builder] <test>" >&2
+if [ -z "$test" ] || [ -n "$2" ]; then
+  echo "Usage: $0 [--builder] [--readonly] [--nobuild] <test>" >&2
   exit 1
 fi
 
@@ -109,7 +121,13 @@ if (( $NUMTAPINTERFACES > 0 )); then
   done
 fi
 
-if [ -z "$KERNEL_BINARY" ]; then
+if [ -n "$KERNEL_BINARY" ]; then
+  nobuild=1
+else
+  KERNEL_BINARY=./linux
+fi
+
+if ((nobuild == 0)); then
   # Exporting ARCH=um SUBARCH=x86_64 doesn't seem to work, as it "sometimes"
   # (?) results in a 32-bit kernel.
 
@@ -138,13 +156,12 @@ EOF
 
   # Compile the kernel.
   $MAKE -j$J linux ARCH=um SUBARCH=x86_64 CROSS_COMPILE=
-  KERNEL_BINARY=./linux
 fi
 
 # Get the absolute path to the test file that's being run.
 dir=/host$SCRIPT_DIR
 
 # Start the VM.
-exec $KERNEL_BINARY umid=net_test ubda=$SCRIPT_DIR/$ROOTFS \
+exec $KERNEL_BINARY umid=net_test $blockdevice=$SCRIPT_DIR/$ROOTFS \
     mem=512M init=/sbin/net_test.sh net_test=$dir/$test \
     net_test_mode=$testmode $netconfig $consolemode >&2
