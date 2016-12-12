@@ -53,30 +53,9 @@ IPV6_FLOWINFO = 11
 IPV6_HOPLIMIT = 52  # Different from IPV6_UNICAST_HOPS, this is cmsg only.
 
 
-def HaveUidRouting():
-  """Checks whether the kernel supports UID routing."""
-  # Create a rule with the UID range selector. If the kernel doesn't understand
-  # the selector, it will create a rule with no selectors.
-  try:
-    iproute.IPRoute().UidRangeRule(6, True, 1000, 2000, 100, 10000)
-  except IOError:
-    return False
-
-  # Dump all the rules. If we find a rule using the UID range selector, then the
-  # kernel supports UID range routing.
-  rules = iproute.IPRoute().DumpRules(6)
-  attrname = "FRA_UID_RANGE" if not iproute.LEGACY_UID_ROUTING else "FRA_UID_START"
-  result = any(attrname in attrs for rule, attrs in rules)
-
-  # Delete the rule.
-  if result:
-    iproute.IPRoute().UidRangeRule(6, False, 1000, 2000, 100, 10000)
-  return result
-
 AUTOCONF_TABLE_SYSCTL = "/proc/sys/net/ipv6/conf/default/accept_ra_rt_table"
 
 HAVE_AUTOCONF_TABLE = os.path.isfile(AUTOCONF_TABLE_SYSCTL)
-HAVE_UID_ROUTING = HaveUidRouting()
 
 
 class UnexpectedPacketError(AssertionError):
@@ -270,10 +249,9 @@ class MultiNetworkBaseTest(net_test.NetworkTest):
       table = cls._TableForNetid(netid)
 
       # Set up routing rules.
-      if HAVE_UID_ROUTING:
-        start, end = cls.UidRangeForNetid(netid)
-        cls.iproute.UidRangeRule(version, is_add, start, end, table,
-                                 cls.PRIORITY_UID)
+      start, end = cls.UidRangeForNetid(netid)
+      cls.iproute.UidRangeRule(version, is_add, start, end, table,
+                               cls.PRIORITY_UID)
       cls.iproute.OifRule(version, is_add, iface, table, cls.PRIORITY_OIF)
       cls.iproute.FwmarkRule(version, is_add, netid, table,
                              cls.PRIORITY_FWMARK)
