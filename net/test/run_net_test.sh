@@ -57,6 +57,8 @@ consolemode=
 testmode=
 blockdevice=ubda
 nobuild=0
+norun=0
+
 while [ -n "$1" ]; do
   if [ "$1" = "--builder" ]; then
     consolemode="con=null,fd:1"
@@ -68,14 +70,27 @@ while [ -n "$1" ]; do
   elif [ "$1" == "--nobuild" ]; then
     nobuild=1
     shift
+  elif [ "$1" == "--norun" ]; then
+    norun=1
+    shift
   else
     test=$1
     break  # The test file must be the last argument.
   fi
 done
 
-if [ -z "$test" ] || [ -n "$2" ]; then
-  echo "Usage: $0 [--builder] [--readonly] [--nobuild] <test>" >&2
+function isRunningTest() {
+  [[ -n "$test" ]] && ! (( norun ))
+}
+
+function isBuildOnly() {
+  [[ -z "$test" ]] && (( norun )) && ! (( nobuild ))
+}
+
+if ! isRunningTest && ! isBuildOnly; then
+  echo "Usage:" >&2
+  echo "  $0 [--builder] [--readonly] [--nobuild] <test>" >&2
+  echo "  $0 --norun" >&2
   exit 1
 fi
 
@@ -156,6 +171,10 @@ EOF
 
   # Compile the kernel.
   $MAKE -j$J linux ARCH=um SUBARCH=x86_64 CROSS_COMPILE=
+fi
+
+if (( norun == 1 )); then
+  exit 0
 fi
 
 # Get the absolute path to the test file that's being run.
