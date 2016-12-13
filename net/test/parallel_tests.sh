@@ -27,6 +27,9 @@ DIR=$(dirname $0)
 RESULTSDIR=$(mktemp --tmpdir -d net_test.parallel.XXXXXX)
 [ -z $RESULTSDIR ] && exit 1
 
+echo "Building kernel..." >&2
+$DIR/run_net_test.sh --norun
+
 echo "Running $WORKERS worker(s) with $RUNS test run(s) each..." >&2
 
 # Start all the workers.
