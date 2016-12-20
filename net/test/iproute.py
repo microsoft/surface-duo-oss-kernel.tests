@@ -28,9 +28,6 @@ import csocket
 import cstruct
 import netlink
 
-LEGACY_UID_ROUTING = csocket.LinuxVersion() < (4, 10, 0)
-
-
 ### Base netlink constants. See include/uapi/linux/netlink.h.
 NETLINK_ROUTE = 0
 
@@ -102,8 +99,6 @@ RTA_CACHEINFO = 12
 RTA_TABLE = 15
 RTA_MARK = 16
 RTA_UID = 25
-if LEGACY_UID_ROUTING:
-  RTA_UID = 18
 
 # Route metric attributes.
 RTAX_MTU = 2
@@ -172,9 +167,6 @@ FRA_TABLE = 15
 FRA_FWMASK = 16
 FRA_OIFNAME = 17
 FRA_UID_RANGE = 20
-if LEGACY_UID_ROUTING:
-  FRA_UID_START = 18
-  FRA_UID_END = 19
 
 # Data structure formats.
 FibRuleUidRange = cstruct.Struct("FibRuleUidRange", "=II", "start end")
@@ -275,7 +267,6 @@ class IPRoute(netlink.NetlinkSocket):
       name = nla_type
 
     if name in ["FRA_PRIORITY", "FRA_FWMARK", "FRA_TABLE", "FRA_FWMASK",
-                "FRA_UID_START", "FRA_UID_END",
                 "RTA_OIF", "RTA_PRIORITY", "RTA_TABLE", "RTA_MARK",
                 "IFLA_MTU", "IFLA_TXQLEN", "IFLA_GROUP", "IFLA_EXT_MASK",
                 "IFLA_PROMISCUITY", "IFLA_NUM_RX_QUEUES",
@@ -386,12 +377,8 @@ class IPRoute(netlink.NetlinkSocket):
 
   def UidRangeRule(self, version, is_add, start, end, table, priority):
     nlattr = self._NlAttrInterfaceName(FRA_IIFNAME, "lo")
-    if not LEGACY_UID_ROUTING:
-      nlattr += self._NlAttr(FRA_UID_RANGE,
-                             FibRuleUidRange((start, end)).Pack())
-    else:
-      nlattr += self._NlAttrU32(FRA_UID_START, start)
-      nlattr += self._NlAttrU32(FRA_UID_END, end)
+    nlattr += self._NlAttr(FRA_UID_RANGE,
+                           FibRuleUidRange((start, end)).Pack())
     return self._Rule(version, is_add, RTN_UNICAST, table, nlattr, priority)
 
   def UnreachableRule(self, version, is_add, priority):
