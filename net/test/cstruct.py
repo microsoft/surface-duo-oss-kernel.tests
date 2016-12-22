@@ -17,7 +17,8 @@
 Example usage:
 
 >>> # Declare a struct type by specifying name, field formats and field names.
-... # Field formats are the same as those used in the struct module.
+... # Field formats are the same as those used in the struct module, except:
+... # - S: Nested Struct.
 ... import cstruct
 >>> NLMsgHdr = cstruct.Struct("NLMsgHdr", "=LHHLL", "length type flags seq pid")
 >>>
@@ -44,6 +45,15 @@ NLMsgHdr(length=44, type=33, flags=2, seq=0, pid=510)
 >>> cstruct.Read(data, NLMsgHdr)
 (NLMsgHdr(length=44, type=33, flags=2, seq=0, pid=510), 'more data')
 >>>
+>>> # Structs can contain one or more nested structs. The nested struct types
+... # are specified in a list as an optional last argument. Nested structs may
+... # contain nested structs.
+... S = cstruct.Struct("S", "=BI", "byte1 int2")
+>>> N = cstruct.Struct("N", "!BSiS", "byte1 s2 int3 s2", [S, S])
+>>> NN = cstruct.Struct("NN", "SHS", "s1 word2 n3", [S, N])
+>>> nn = NN((S((1, 25000)), -29876, N((55, S((5, 6)), 1111, S((7, 8))))))
+>>> nn.n3.s2.int2 = 5
+>>>
 """
 
 import ctypes
@@ -52,9 +62,12 @@ import struct
 
 
 def CalcNumElements(fmt):
+  prevlen = len(fmt)
+  fmt = fmt.replace("S", "")
+  numstructs = prevlen - len(fmt)
   size = struct.calcsize(fmt)
   elements = struct.unpack(fmt, "\x00" * size)
-  return len(elements)
+  return len(elements) + numstructs
 
 
 def Struct(name, fmt, fieldnames, substructs={}):

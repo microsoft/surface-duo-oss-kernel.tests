@@ -55,6 +55,45 @@ class CstructTest(unittest.TestCase):
       self.CheckEquals(i, i)
     self.CheckEquals(a1, a3)
 
+  def testNestedStructs(self):
+    Nested = cstruct.Struct("Nested", "!HSSi",
+                            "word1 nest2 nest3 int4",
+                            [TestStructA, TestStructB])
+    DoubleNested = cstruct.Struct("DoubleNested", "SSB",
+                                  "nest1 nest2 byte3",
+                                  [TestStructA, Nested])
+    d = DoubleNested((TestStructA((1, 2)),
+                      Nested((5, TestStructA((3, 4)), TestStructB((7, 8)), 9)),
+                      6))
+
+    expectedlen = (len(TestStructA) +
+                   2 + len(TestStructA) + len(TestStructB) + 4 +
+                   1)
+    self.assertEquals(expectedlen, len(DoubleNested))
+
+    self.assertEquals(7, d.nest2.nest3.byte1)
+
+    d.byte3 = 252
+    d.nest2.word1 = 33214
+    n = d.nest2
+    n.int4 = -55
+    t = n.nest3
+    t.int2 = 33627591
+
+    self.assertEquals(33627591, d.nest2.nest3.int2)
+
+    expected = (
+        "DoubleNested(nest1=TestStructA(byte1=1, int2=2),"
+        " nest2=Nested(word1=33214, nest2=TestStructA(byte1=3, int2=4),"
+        " nest3=TestStructB(byte1=7, int2=33627591), int4=-55), byte3=252)")
+    self.assertEquals(expected, str(d))
+    expected = ("01" "02000000"
+                "81be" "03" "04000000"
+                "07" "c71d0102" "ffffffc9" "fc").decode("hex")
+    self.assertEquals(expected, d.Pack())
+    unpacked = DoubleNested(expected)
+    self.CheckEquals(unpacked, d)
+
 
 if __name__ == "__main__":
   unittest.main()
