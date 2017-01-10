@@ -832,13 +832,14 @@ class UidRoutingTest(multinetwork_base.MultiNetworkBaseTest):
   def testIPv6InitialTablesHaveNoUIDs(self):
     self.CheckInitialTablesHaveNoUIDs(6)
 
-  def CheckGetAndSetRules(self, version):
-    def Random():
-      return random.randint(1000000, 2000000)
+  @staticmethod
+  def _Random():
+    return random.randint(1000000, 2000000)
 
-    start, end = tuple(sorted([Random(), Random()]))
-    table = Random()
-    priority = Random()
+  def CheckGetAndSetRules(self, version):
+    start, end = tuple(sorted([self._Random(), self._Random()]))
+    table = self._Random()
+    priority = self._Random()
 
     # Can't create a UID range to UID -1 because -1 is INVALID_UID...
     self.assertRaisesErrno(
@@ -949,6 +950,36 @@ class UidRoutingTest(multinetwork_base.MultiNetworkBaseTest):
 
   def testIPv6RouteGet(self):
     self.CheckGetRoute(6, net_test.IPV6_ADDR)
+
+  def testChangeFdAttributes(self):
+    netid = random.choice(self.NETIDS)
+    uid = self._Random()
+    table = self._TableForNetid(netid)
+    remoteaddr = self.GetRemoteAddress(6)
+    s = socket(AF_INET6, SOCK_DGRAM, 0)
+
+    def CheckSendFails():
+      self.assertRaisesErrno(errno.ENETUNREACH,
+                             s.sendto, "foo", (remoteaddr, 53))
+    def CheckSendSucceeds():
+      self.assertEquals(len("foo"), s.sendto("foo", (remoteaddr, 53)))
+
+    CheckSendFails()
+    self.iproute.UidRangeRule(6, True, uid, uid, table, self.PRIORITY_UID)
+    try:
+      CheckSendFails()
+      os.fchown(s.fileno(), uid, -1)
+      CheckSendSucceeds()
+      os.fchown(s.fileno(), -1, -1)
+      CheckSendSucceeds()
+      os.fchown(s.fileno(), -1, 12345)
+      CheckSendSucceeds()
+      os.fchmod(s.fileno(), 0777)
+      CheckSendSucceeds()
+      os.fchown(s.fileno(), 0, -1)
+      CheckSendFails()
+    finally:
+      self.iproute.UidRangeRule(6, False, uid, uid, table, self.PRIORITY_UID)
 
 
 class RulesTest(net_test.NetworkTest):
