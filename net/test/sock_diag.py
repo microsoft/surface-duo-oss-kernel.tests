@@ -160,7 +160,7 @@ class SockDiag(netlink.NetlinkSocket):
 
     return name, data
 
-  def MaybeDebugCommand(self, command, data):
+  def MaybeDebugCommand(self, command, unused_flags, data):
     name = self._GetConstantName(__name__, command, "SOCK_")
     if "ALL" not in self.NL_DEBUG and "SOCK" not in self.NL_DEBUG:
       return
