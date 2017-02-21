@@ -94,6 +94,22 @@ class CstructTest(unittest.TestCase):
     unpacked = DoubleNested(expected)
     self.CheckEquals(unpacked, d)
 
+  def testNullTerminatedStrings(self):
+    TestStruct = cstruct.Struct("TestStruct", "B16si16AH",
+                                "byte1 string2 int3 ascii4 word5")
+    nullstr = "hello" + (16 - len("hello")) * "\x00"
+
+    t = TestStruct((2, nullstr, 12345, nullstr, 33210))
+    expected = ("TestStruct(byte1=2, string2=68656c6c6f0000000000000000000000,"
+                " int3=12345, ascii4=hello, word5=33210)")
+    self.assertEquals(expected, str(t))
+
+    embeddednull = "hello\x00visible123"
+    t = TestStruct((2, embeddednull, 12345, embeddednull, 33210))
+    expected = ("TestStruct(byte1=2, string2=68656c6c6f0076697369626c65313233,"
+                " int3=12345, ascii4=hello\x00visible123, word5=33210)")
+    self.assertEquals(expected, str(t))
+
 
 if __name__ == "__main__":
   unittest.main()
