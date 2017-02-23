@@ -17,7 +17,10 @@
 Example usage:
 
 >>> # Declare a struct type by specifying name, field formats and field names.
-... # Field formats are the same as those used in the struct module.
+... # Field formats are the same as those used in the struct module, except:
+... # - S: Nested Struct.
+... # - A: NULL-padded ASCII string. Like s, but printing ignores contiguous
+... #      trailing NULL blocks at the end.
 ... import cstruct
 >>> NLMsgHdr = cstruct.Struct("NLMsgHdr", "=LHHLL", "length type flags seq pid")
 >>>
@@ -44,6 +47,15 @@ NLMsgHdr(length=44, type=33, flags=2, seq=0, pid=510)
 >>> cstruct.Read(data, NLMsgHdr)
 (NLMsgHdr(length=44, type=33, flags=2, seq=0, pid=510), 'more data')
 >>>
+>>> # Structs can contain one or more nested structs. The nested struct types
+... # are specified in a list as an optional last argument. Nested structs may
+... # contain nested structs.
+... S = cstruct.Struct("S", "=BI", "byte1 int2")
+>>> N = cstruct.Struct("N", "!BSiS", "byte1 s2 int3 s2", [S, S])
+>>> NN = cstruct.Struct("NN", "SHS", "s1 word2 n3", [S, N])
+>>> nn = NN((S((1, 25000)), -29876, N((55, S((5, 6)), 1111, S((7, 8))))))
+>>> nn.n3.s2.int2 = 5
+>>>
 """
 
 import ctypes
@@ -51,10 +63,18 @@ import string
 import struct
 
 
+def CalcSize(fmt):
+  if "A" in fmt:
+    fmt = fmt.replace("A", "s")
+  return struct.calcsize(fmt)
+
 def CalcNumElements(fmt):
-  size = struct.calcsize(fmt)
+  prevlen = len(fmt)
+  fmt = fmt.replace("S", "")
+  numstructs = prevlen - len(fmt)
+  size = CalcSize(fmt)
   elements = struct.unpack(fmt, "\x00" * size)
-  return len(elements)
+  return len(elements) + numstructs
 
 
 def Struct(name, fmt, fieldnames, substructs={}):
@@ -80,6 +100,8 @@ def Struct(name, fmt, fieldnames, substructs={}):
     _fieldnames = fieldnames
     # Dict mapping field indices to nested struct classes.
     _nested = {}
+    # List of string fields that are ASCII strings.
+    _asciiz = set()
 
     if isinstance(_fieldnames, str):
       _fieldnames = _fieldnames.split(" ")
@@ -95,11 +117,16 @@ def Struct(name, fmt, fieldnames, substructs={}):
         _nested[index] = substructs[laststructindex]
         laststructindex += 1
         _format += "%ds" % len(_nested[index])
+      elif fmt[i] == "A":
+        # Null-terminated ASCII string.
+        index = CalcNumElements(fmt[:i])
+        _asciiz.add(index)
+        _format += "s"
       else:
          # Standard struct format character.
         _format += fmt[i]
 
-    _length = struct.calcsize(_format)
+    _length = CalcSize(_format)
 
     def _SetValues(self, values):
       super(CStruct, self).__setattr__("_values", list(values))
@@ -165,9 +192,11 @@ def Struct(name, fmt, fieldnames, substructs={}):
 
     def __str__(self):
       def FieldDesc(index, name, value):
-        if isinstance(value, str) and any(
-            c not in string.printable for c in value):
-          value = value.encode("hex")
+        if isinstance(value, str):
+          if index in self._asciiz:
+            value = value.rstrip("\x00")
+          elif any(c not in string.printable for c in value):
+            value = value.encode("hex")
         return "%s=%s" % (name, value)
 
       descriptions = [
