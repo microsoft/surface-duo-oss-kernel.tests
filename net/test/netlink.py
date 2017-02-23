@@ -91,7 +91,7 @@ class NetlinkSocket(object):
     """No-op, nonspecific version of decode."""
     return nla_type, nla_data
 
-  def _ParseAttributes(self, command, family, msg, data):
+  def _ParseAttributes(self, command, msg, data):
     """Parses and decodes netlink attributes.
 
     Takes a block of NLAttr data structures, decodes them using Decode, and
@@ -99,7 +99,6 @@ class NetlinkSocket(object):
 
     Args:
       command: An integer, the rtnetlink command being carried out.
-      family: The address family.
       msg: A Struct, the type of the data after the netlink header.
       data: A byte string containing a sequence of NLAttr data structures.
 
@@ -139,6 +138,10 @@ class NetlinkSocket(object):
     self.sock.connect((0, 0))  # The kernel.
     self.pid = self.sock.getsockname()[1]
 
+  def MaybeDebugCommand(self, command, flags, data):
+    # Default no-op implementation to be overridden by subclasses.
+    pass
+
   def _Send(self, msg):
     # self._Debug(msg.encode("hex"))
     self.seq += 1
@@ -174,7 +177,7 @@ class NetlinkSocket(object):
     length = len(NLMsgHdr) + len(data)
     nlmsg = NLMsgHdr((length, command, flags, self.seq, self.pid)).Pack()
 
-    self.MaybeDebugCommand(command, nlmsg + data)
+    self.MaybeDebugCommand(command, flags, nlmsg + data)
 
     # Send the message.
     self._Send(nlmsg + data)
@@ -196,8 +199,7 @@ class NetlinkSocket(object):
 
     # Parse the attributes in the nlmsg.
     attrlen = nlmsghdr.length - len(nlmsghdr) - len(nlmsg)
-    attributes = self._ParseAttributes(nlmsghdr.type, nlmsg.family,
-                                       nlmsg, data[:attrlen])
+    attributes = self._ParseAttributes(nlmsghdr.type, nlmsg, data[:attrlen])
     data = data[attrlen:]
     return (nlmsg, attributes), data
 
@@ -223,7 +225,7 @@ class NetlinkSocket(object):
 
     Args:
       command: An integer, the command to run (e.g., RTM_NEWADDR).
-      msg: A string, the raw bytes of the request (e.g., a packed RTMsg).
+      msg: A struct, the request (e.g., a RTMsg). May be None.
       msgtype: A cstruct.Struct, the data type to parse the dump results as.
       attrs: A string, the raw bytes of any request attributes to include.
 
@@ -233,12 +235,13 @@ class NetlinkSocket(object):
     """
     # Create a netlink dump request containing the msg.
     flags = NLM_F_DUMP | NLM_F_REQUEST
+    msg = "" if msg is None else msg.Pack()
     length = len(NLMsgHdr) + len(msg) + len(attrs)
     nlmsghdr = NLMsgHdr((length, command, flags, self.seq, self.pid))
 
     # Send the request.
-    request = nlmsghdr.Pack() + msg.Pack() + attrs
-    self.MaybeDebugCommand(command, request)
+    request = nlmsghdr.Pack() + msg + attrs
+    self.MaybeDebugCommand(command, flags, request)
     self._Send(request)
 
     # Keep reading netlink messages until we get a NLMSG_DONE.
