@@ -83,9 +83,24 @@ while [ -n "$1" ]; do
     shift
   else
     test=$1
-    break  # The test file must be the last argument.
+    break  # Arguments after the test file are passed to the test itself.
   fi
 done
+
+# Check that test file exists and is readable
+test_file=$SCRIPT_DIR/$test
+if [[ ! -e $test_file ]]; then
+  echo "test file '${test_file}' does not exist"
+  exit 1
+fi
+
+if [[ ! -x $test_file ]]; then
+  echo "test file '${test_file}' is not executable"
+  exit 1
+fi
+
+# Collect trailing arguments to pass to $test
+test_args=${@:2}
 
 function isRunningTest() {
   [[ -n "$test" ]] && ! (( norun ))
@@ -191,4 +206,5 @@ dir=/host$SCRIPT_DIR
 # Start the VM.
 exec $KERNEL_BINARY umid=net_test $blockdevice=$SCRIPT_DIR/$ROOTFS \
     mem=512M init=/sbin/net_test.sh net_test=$dir/$test \
+    net_test_args=\"$test_args\" \
     net_test_mode=$testmode $netconfig $consolemode >&2
