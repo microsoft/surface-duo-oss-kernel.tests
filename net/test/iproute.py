@@ -31,18 +31,6 @@ import netlink
 ### Base netlink constants. See include/uapi/linux/netlink.h.
 NETLINK_ROUTE = 0
 
-# Request constants.
-NLM_F_REQUEST = 1
-NLM_F_ACK = 4
-NLM_F_REPLACE = 0x100
-NLM_F_EXCL = 0x200
-NLM_F_CREATE = 0x400
-NLM_F_DUMP = 0x300
-
-# Message types.
-NLMSG_ERROR = 2
-NLMSG_DONE = 3
-
 # Data structure formats.
 # These aren't constants, they're classes. So, pylint: disable=invalid-name
 NLMsgHdr = cstruct.Struct("NLMsgHdr", "=LHHLL", "length type flags seq pid")
@@ -285,7 +273,7 @@ class IPRoute(netlink.NetlinkSocket):
                   "IFA_LABEL"]:
       data = nla_data.strip("\x00")
     elif name == "RTA_METRICS":
-      data = self._ParseAttributes(-RTA_METRICS, msg.family, None, nla_data)
+      data = self._ParseAttributes(-RTA_METRICS, None, nla_data)
     elif name == "RTA_CACHEINFO":
       data = RTACacheinfo(nla_data)
     elif name == "IFA_CACHEINFO":
@@ -310,12 +298,12 @@ class IPRoute(netlink.NetlinkSocket):
   def _SendNlRequest(self, command, data, flags=0):
     """Sends a netlink request and expects an ack."""
 
-    flags |= NLM_F_REQUEST
+    flags |= netlink.NLM_F_REQUEST
     if CommandVerb(command) != "GET":
-      flags |= NLM_F_ACK
+      flags |= netlink.NLM_F_ACK
     if CommandVerb(command) == "NEW":
-      if not flags & NLM_F_REPLACE:
-        flags |= (NLM_F_EXCL | NLM_F_CREATE)
+      if not flags & netlink.NLM_F_REPLACE:
+        flags |= (netlink.NLM_F_EXCL | netlink.NLM_F_CREATE)
 
     super(IPRoute, self)._SendNlRequest(command, data, flags)
 
@@ -403,7 +391,7 @@ class IPRoute(netlink.NetlinkSocket):
     except IndexError:
       raise ValueError("Don't know how to print command type %s" % name)
 
-  def MaybeDebugCommand(self, command, data):
+  def MaybeDebugCommand(self, command, unused_flags, data):
     subject = CommandSubject(command)
     if "ALL" not in self.NL_DEBUG and subject not in self.NL_DEBUG:
       return
@@ -500,7 +488,7 @@ class IPRoute(netlink.NetlinkSocket):
     self._Route(version, RTM_GETROUTE, 0, dest, prefixlen, None, oif, mark, uid)
     data = self._Recv()
     # The response will either be an error or a list of routes.
-    if NLMsgHdr(data).type == NLMSG_ERROR:
+    if NLMsgHdr(data).type == netlink.NLMSG_ERROR:
       self._ParseAck(data)
     routes = self._GetMsgList(RTMsg, data, False)
     return routes
@@ -531,7 +519,7 @@ class IPRoute(netlink.NetlinkSocket):
 
   def UpdateNeighbour(self, version, addr, lladdr, dev, state):
     self._Neighbour(version, True, addr, lladdr, dev, state,
-                    flags=NLM_F_REPLACE)
+                    flags=netlink.NLM_F_REPLACE)
 
   def DumpNeighbours(self, version):
     ndmsg = NdMsg((self._AddressFamily(version), 0, 0, 0, 0))
