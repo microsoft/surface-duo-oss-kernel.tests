@@ -804,13 +804,30 @@ class UidRoutingTest(multinetwork_base.MultiNetworkBaseTest):
   """Tests that per-UID routing works properly.
 
   Relevant kernel commits:
-    android-3.4:
-      0b42874 net: core: Support UID-based routing.
-      0836a0c Handle 'sk' being NULL in UID-based routing.
+    upstream net-next:
+      7d99569460 net: ipv4: Don't crash if passing a null sk to ip_do_redirect.
+      d109e61bfe net: ipv4: Don't crash if passing a null sk to ip_rt_update_pmtu.
+      35b80733b3 net: core: add missing check for uid_range in rule_exists.
+      e2d118a1cb net: inet: Support UID-based routing in IP protocols.
+      622ec2c9d5 net: core: add UID to flows, rules, and routes
+      86741ec254 net: core: Add a UID field to struct sock.
 
-    android-3.10:
-      99a6ea4 net: core: Support UID-based routing.
-      455b09d Handle 'sk' being NULL in UID-based routing.
+    android-3.18:
+      b004e79504 net: ipv4: Don't crash if passing a null sk to ip_rt_update_pmtu.
+      04c0eace81 net: inet: Support UID-based routing in IP protocols.
+      18c36d7b71 net: core: add UID to flows, rules, and routes
+      80e3440721 net: core: Add a UID field to struct sock.
+      fa8cc2c30c Revert "net: core: Support UID-based routing."
+      b585141890 Revert "Handle 'sk' being NULL in UID-based routing."
+      5115ab7514 Revert "net: core: fix UID-based routing build"
+      f9f4281f79 Revert "ANDROID: net: fib: remove duplicate assignment"
+
+    android-4.4:
+      341965cf10 net: ipv4: Don't crash if passing a null sk to ip_rt_update_pmtu.
+      344afd627c net: inet: Support UID-based routing in IP protocols.
+      03441d56d8 net: core: add UID to flows, rules, and routes
+      eb964bdba7 net: core: Add a UID field to struct sock.
+      9789b697c6 Revert "net: core: Support UID-based routing."
   """
 
   def GetRulesAtPriority(self, version, priority):
