@@ -19,8 +19,8 @@ if [ "$net_test_mode" != "builder" ]; then
   trap "exec /bin/bash" ERR EXIT
 fi
 
-echo -e "Running $net_test\n"
-$net_test
+echo -e "Running $net_test $net_test_args\n"
+$net_test $net_test_args
 
 # Write exit code of net_test to /proc/exitcode so that the builder can use it
 # to signal failure if any tests fail.
