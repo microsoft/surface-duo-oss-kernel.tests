@@ -574,6 +574,115 @@ class TCPAcceptTest(InboundMarkingTest):
   def testIPv6ExplicitMark(self):
     self.CheckTCP(6, [self.MODE_EXPLICIT_MARK])
 
+class RIOTest(multinetwork_base.MultiNetworkBaseTest):
+
+  def setUp(self):
+    self.NETID = random.choice(self.NETIDS)
+    self.IFACE = self.GetInterfaceName(self.NETID)
+
+  def GetRoutingTable(self):
+    return self._TableForNetid(self.NETID)
+
+  def SetAcceptRaRtInfoMaxPlen(self, plen):
+    self.SetSysctl(
+        "/proc/sys/net/ipv6/conf/%s/accept_ra_rt_info_max_plen"
+        % self.IFACE, str(plen))
+
+  def GetAcceptRaRtInfoMaxPlen(self):
+    return int(self.GetSysctl(
+        "/proc/sys/net/ipv6/conf/%s/accept_ra_rt_info_max_plen" % self.IFACE))
+
+  def SendRIO(self, rtlifetime, plen, prefix, prf):
+    options = scapy.ICMPv6NDOptRouteInfo(rtlifetime=rtlifetime, plen=plen,
+                                         prefix=prefix, prf=prf)
+    self.SendRA(self.NETID, options=(options,))
+
+  def FindRoutesWithDestination(self, destination):
+    canonical = net_test.CanonicalizeIPv6Address(destination)
+    return [r for _, r in self.iproute.DumpRoutes(6, self.GetRoutingTable())
+            if ('RTA_DST' in r and r['RTA_DST'] == canonical)]
+
+  def FindRoutesWithGateway(self):
+    return [r for _, r in self.iproute.DumpRoutes(6, self.GetRoutingTable())
+            if 'RTA_GATEWAY' in r]
+
+  def CountRoutes(self):
+    return len(self.iproute.DumpRoutes(6, self.GetRoutingTable()))
+
+  def GetRouteExpiration(self, route):
+    return float(route['RTA_CACHEINFO'].expires) / 100.0
+
+  def testSetAcceptRaRtInfoMaxPlen(self):
+    for plen in xrange(-1, 130):
+      self.SetAcceptRaRtInfoMaxPlen(plen)
+      self.assertEquals(plen, self.GetAcceptRaRtInfoMaxPlen())
+
+  @unittest.skipUnless(multinetwork_base.HAVE_AUTOCONF_TABLE,
+                       "no support for per-table autoconf")
+  def testZeroRtLifetime(self):
+    PREFIX = "2001:db8:8901:2300::"
+    RTLIFETIME = 7372
+    PLEN = 56
+    PRF = 0
+    self.SetAcceptRaRtInfoMaxPlen(PLEN)
+    self.SendRIO(RTLIFETIME, PLEN, PREFIX, PRF)
+    self.assertTrue(self.FindRoutesWithDestination(PREFIX))
+    # RIO with rtlifetime = 0 should remove from routing table
+    self.SendRIO(0, PLEN, PREFIX, PRF)
+    self.assertFalse(self.FindRoutesWithDestination(PREFIX))
+
+  @unittest.skipUnless(multinetwork_base.HAVE_AUTOCONF_TABLE,
+                       "no support for per-table autoconf")
+  def testMaxPrefixLenRejection(self):
+    PREFIX = "2001:db8:8901:2345::"
+    RTLIFETIME = 7372
+    PRF = 0
+    for plen in xrange(0, 64):
+      self.SetAcceptRaRtInfoMaxPlen(plen)
+      # RIO with plen > max_plen should be ignored
+      self.SendRIO(RTLIFETIME, plen + 1, PREFIX, PRF)
+      routes = self.FindRoutesWithDestination(PREFIX)
+      self.assertFalse(routes)
+
+  @unittest.skipUnless(multinetwork_base.HAVE_AUTOCONF_TABLE,
+                       "no support for per-table autoconf")
+  def testZeroLengthPrefix(self):
+    PREFIX = "::"
+    RTLIFETIME = self.RA_VALIDITY * 2
+    PLEN = 0
+    PRF = 0
+    # Max plen = 0 still allows default RIOs!
+    self.SetAcceptRaRtInfoMaxPlen(PLEN)
+    default = self.FindRoutesWithGateway()
+    self.assertTrue(default)
+    self.assertLess(self.GetRouteExpiration(default[0]), self.RA_VALIDITY)
+    # RIO with prefix length = 0, should overwrite default route lifetime
+    # note that the RIO lifetime overwrites the RA lifetime.
+    self.SendRIO(RTLIFETIME, PLEN, PREFIX, PRF)
+    default = self.FindRoutesWithGateway()
+    self.assertTrue(default)
+    self.assertGreater(self.GetRouteExpiration(default[0]), self.RA_VALIDITY)
+
+  @unittest.skipUnless(multinetwork_base.HAVE_AUTOCONF_TABLE,
+                       "no support for per-table autoconf")
+  def testManyRIOs(self):
+    RTLIFETIME = 6809
+    PLEN = 56
+    PRF = 0
+    COUNT = 1000
+    baseline = self.CountRoutes()
+    self.SetAcceptRaRtInfoMaxPlen(56)
+    # Send many RIOs compared to the expected number on a healthy system.
+    for i in xrange(0, COUNT):
+      prefix = "2001:db8:%x:1100::" % i
+      self.SendRIO(RTLIFETIME, PLEN, prefix, PRF)
+    self.assertEquals(COUNT + baseline, self.CountRoutes())
+    # Use lifetime = 0 to cleanup all previously announced RIOs.
+    for i in xrange(0, COUNT):
+      prefix = "2001:db8:%x:1100::" % i
+      self.SendRIO(0, PLEN, prefix, PRF)
+    # Expect that we can return to baseline config without lingering routes.
+    self.assertEquals(baseline, self.CountRoutes())
 
 class RATest(multinetwork_base.MultiNetworkBaseTest):
 
