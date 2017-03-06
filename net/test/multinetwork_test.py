@@ -630,9 +630,13 @@ class RIOTest(multinetwork_base.MultiNetworkBaseTest):
     PRF = 0
     self.SetAcceptRaRtInfoMaxPlen(PLEN)
     self.SendRIO(RTLIFETIME, PLEN, PREFIX, PRF)
+    # Give the kernel time to notice our RA
+    time.sleep(0.01)
     self.assertTrue(self.FindRoutesWithDestination(PREFIX))
     # RIO with rtlifetime = 0 should remove from routing table
     self.SendRIO(0, PLEN, PREFIX, PRF)
+    # Give the kernel time to notice our RA
+    time.sleep(0.01)
     self.assertFalse(self.FindRoutesWithDestination(PREFIX))
 
   @unittest.skipUnless(HAVE_MAX_PLEN and multinetwork_base.HAVE_AUTOCONF_TABLE,
@@ -645,6 +649,8 @@ class RIOTest(multinetwork_base.MultiNetworkBaseTest):
       self.SetAcceptRaRtInfoMaxPlen(plen)
       # RIO with plen > max_plen should be ignored
       self.SendRIO(RTLIFETIME, plen + 1, PREFIX, PRF)
+      # Give the kernel time to notice our RA
+      time.sleep(0.01)
       routes = self.FindRoutesWithDestination(PREFIX)
       self.assertFalse(routes)
 
@@ -663,15 +669,16 @@ class RIOTest(multinetwork_base.MultiNetworkBaseTest):
     # RIO with prefix length = 0, should overwrite default route lifetime
     # note that the RIO lifetime overwrites the RA lifetime.
     self.SendRIO(RTLIFETIME, PLEN, PREFIX, PRF)
+    # Give the kernel time to notice our RA
+    time.sleep(0.01)
     default = self.FindRoutesWithGateway()
     self.assertTrue(default)
-    if net_test.LINUX_VERSION < (3, 13, 0):
-      # Versions earlier than 3.13 overwrite the default route lifetime with
-      # zero and unset RTF_EXPIRES in rt6i_flags after receiving a RIO with a
-      # zero length prefix. Later versions explicitly check for a zero length
-      # prefix and handle that as a special case.
-      self.assertEquals(self.GetRouteExpiration(default[0]), 0)
-    else:
+    if net_test.LINUX_VERSION > (3, 12, 0):
+      # Vanilla linux earlier than 3.13 handles RIOs with zero length prefixes
+      # incorrectly. There's nothing useful to assert other than the existence
+      # of a default route.
+      # TODO: remove this condition after pulling bullhead/angler backports to
+      # other 3.10 flavors.
       self.assertGreater(self.GetRouteExpiration(default[0]), self.RA_VALIDITY)
 
   @unittest.skipUnless(HAVE_MAX_PLEN and multinetwork_base.HAVE_AUTOCONF_TABLE,
