@@ -86,6 +86,7 @@ RTA_METRICS = 8
 RTA_CACHEINFO = 12
 RTA_TABLE = 15
 RTA_MARK = 16
+RTA_PREF = 20
 RTA_UID = 25
 
 # Route metric attributes.
@@ -492,6 +493,11 @@ class IPRoute(netlink.NetlinkSocket):
       self._ParseAck(data)
     routes = self._GetMsgList(RTMsg, data, False)
     return routes
+
+  def DumpRoutes(self, version, ifindex):
+    ndmsg = NdMsg((self._AddressFamily(version), 0, 0, 0, 0))
+    return [(m, r) for (m, r) in self._Dump(RTM_GETROUTE, ndmsg, NdMsg, "")
+            if r['RTA_TABLE'] == ifindex]
 
   def _Neighbour(self, version, is_add, addr, lladdr, dev, state, flags=0):
     """Adds or deletes a neighbour cache entry."""
