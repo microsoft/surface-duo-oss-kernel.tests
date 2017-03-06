@@ -226,13 +226,17 @@ def SetInterfaceDown(ifname):
   return SetInterfaceState(ifname, False)
 
 
+def CanonicalizeIPv6Address(addr):
+  return inet_ntop(AF_INET6, inet_pton(AF_INET6, addr))
+
+
 def FormatProcAddress(unformatted):
   groups = []
   for i in xrange(0, len(unformatted), 4):
     groups.append(unformatted[i:i+4])
   formatted = ":".join(groups)
   # Compress the address.
-  address = inet_ntop(AF_INET6, inet_pton(AF_INET6, formatted))
+  address = CanonicalizeIPv6Address(formatted)
   return address
 
 

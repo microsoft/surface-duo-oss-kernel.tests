@@ -113,6 +113,8 @@ class MultiNetworkBaseTest(net_test.NetworkTest):
   IPV4_PING = net_test.IPV4_PING
   IPV6_PING = net_test.IPV6_PING
 
+  RA_VALIDITY = 300 # seconds
+
   @classmethod
   def UidRangeForNetid(cls, netid):
     return (
@@ -210,8 +212,8 @@ class MultiNetworkBaseTest(net_test.NetworkTest):
     return f
 
   @classmethod
-  def SendRA(cls, netid, retranstimer=None, reachabletime=0):
-    validity = 300                 # seconds
+  def SendRA(cls, netid, retranstimer=None, reachabletime=0, options=()):
+    validity = cls.RA_VALIDITY # seconds
     macaddr = cls.RouterMacAddress(netid)
     lladdr = cls._RouterAddress(netid, 6)
 
@@ -236,6 +238,8 @@ class MultiNetworkBaseTest(net_test.NetworkTest):
                                       L=1, A=1,
                                       validlifetime=validity,
                                       preferredlifetime=validity))
+    for option in options:
+      ra /= option
     posix.write(cls.tuns[netid].fileno(), str(ra))
 
   @classmethod
