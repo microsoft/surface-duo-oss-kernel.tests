@@ -43,6 +43,8 @@ TCP_MARK_ACCEPT_SYSCTL = "/proc/sys/net/ipv4/tcp_fwmark_accept"
 # The IP[V6]UNICAST_IF socket option was added between 3.1 and 3.4.
 HAVE_UNICAST_IF = net_test.LINUX_VERSION >= (3, 4, 0)
 
+MAX_PLEN_SYSCTL = "/proc/sys/net/ipv6/conf/default/accept_ra_rt_info_max_plen"
+HAVE_MAX_PLEN = os.path.isfile(MAX_PLEN_SYSCTL)
 
 class ConfigurationError(AssertionError):
   pass
@@ -612,13 +614,15 @@ class RIOTest(multinetwork_base.MultiNetworkBaseTest):
   def GetRouteExpiration(self, route):
     return float(route['RTA_CACHEINFO'].expires) / 100.0
 
+  @unittest.skipUnless(HAVE_MAX_PLEN and multinetwork_base.HAVE_AUTOCONF_TABLE,
+                       "need support for RIO and per-table autoconf")
   def testSetAcceptRaRtInfoMaxPlen(self):
     for plen in xrange(-1, 130):
       self.SetAcceptRaRtInfoMaxPlen(plen)
       self.assertEquals(plen, self.GetAcceptRaRtInfoMaxPlen())
 
-  @unittest.skipUnless(multinetwork_base.HAVE_AUTOCONF_TABLE,
-                       "no support for per-table autoconf")
+  @unittest.skipUnless(HAVE_MAX_PLEN and multinetwork_base.HAVE_AUTOCONF_TABLE,
+                       "need support for RIO and per-table autoconf")
   def testZeroRtLifetime(self):
     PREFIX = "2001:db8:8901:2300::"
     RTLIFETIME = 7372
@@ -631,8 +635,8 @@ class RIOTest(multinetwork_base.MultiNetworkBaseTest):
     self.SendRIO(0, PLEN, PREFIX, PRF)
     self.assertFalse(self.FindRoutesWithDestination(PREFIX))
 
-  @unittest.skipUnless(multinetwork_base.HAVE_AUTOCONF_TABLE,
-                       "no support for per-table autoconf")
+  @unittest.skipUnless(HAVE_MAX_PLEN and multinetwork_base.HAVE_AUTOCONF_TABLE,
+                       "need support for RIO and per-table autoconf")
   def testMaxPrefixLenRejection(self):
     PREFIX = "2001:db8:8901:2345::"
     RTLIFETIME = 7372
@@ -644,8 +648,8 @@ class RIOTest(multinetwork_base.MultiNetworkBaseTest):
       routes = self.FindRoutesWithDestination(PREFIX)
       self.assertFalse(routes)
 
-  @unittest.skipUnless(multinetwork_base.HAVE_AUTOCONF_TABLE,
-                       "no support for per-table autoconf")
+  @unittest.skipUnless(HAVE_MAX_PLEN and multinetwork_base.HAVE_AUTOCONF_TABLE,
+                       "need support for RIO and per-table autoconf")
   def testZeroLengthPrefix(self):
     PREFIX = "::"
     RTLIFETIME = self.RA_VALIDITY * 2
@@ -661,10 +665,17 @@ class RIOTest(multinetwork_base.MultiNetworkBaseTest):
     self.SendRIO(RTLIFETIME, PLEN, PREFIX, PRF)
     default = self.FindRoutesWithGateway()
     self.assertTrue(default)
-    self.assertGreater(self.GetRouteExpiration(default[0]), self.RA_VALIDITY)
+    if net_test.LINUX_VERSION < (3, 13, 0):
+      # Versions earlier than 3.13 overwrite the default route lifetime with
+      # zero and unset RTF_EXPIRES in rt6i_flags after receiving a RIO with a
+      # zero length prefix. Later versions explicitly check for a zero length
+      # prefix and handle that as a special case.
+      self.assertEquals(self.GetRouteExpiration(default[0]), 0)
+    else:
+      self.assertGreater(self.GetRouteExpiration(default[0]), self.RA_VALIDITY)
 
-  @unittest.skipUnless(multinetwork_base.HAVE_AUTOCONF_TABLE,
-                       "no support for per-table autoconf")
+  @unittest.skipUnless(HAVE_MAX_PLEN and multinetwork_base.HAVE_AUTOCONF_TABLE,
+                       "need support for RIO and per-table autoconf")
   def testManyRIOs(self):
     RTLIFETIME = 6809
     PLEN = 56
