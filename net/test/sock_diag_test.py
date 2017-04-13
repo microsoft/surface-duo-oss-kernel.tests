@@ -20,7 +20,6 @@ import os
 import random
 import re
 from socket import *  # pylint: disable=wildcard-import
-import struct
 import threading
 import time
 import unittest
@@ -306,16 +305,6 @@ class SockDiagTest(SockDiagBaseTest):
     DiagDump(op)  # No errors? Good.
     self.assertRaisesErrno(EINVAL, DiagDump, op + 17)
 
-  @unittest.skipUnless(net_test.LINUX_VERSION >= (3, 18, 0),
-                       "socket cookie not supported")
-  def testSockCookieNotPointer(self):
-    """Tests that socket cookie is not the sk pointer."""
-    socketpair = net_test.CreateSocketPair(AF_INET6, SOCK_STREAM,
-                                           "::ffff:127.0.0.1")
-    for sock in socketpair:
-      diag_msg = self.sock_diag.FindSockDiagFromFd(sock)
-      real_cookie = struct.unpack('=Q', diag_msg.id.cookie)[0]
-      self.assertNotEqual(real_cookie >> 32, 0xFFFFFFFF)
 
 class SockDestroyTest(SockDiagBaseTest):
   """Tests that SOCK_DESTROY works correctly.
