@@ -58,8 +58,10 @@ class InboundMarkingTest(multinetwork_base.MultiNetworkBaseTest):
       iptables = {4: "iptables", 6: "ip6tables"}[version]
       args = "%s %s INPUT -t mangle -i %s -j MARK --set-mark %d" % (
           iptables, add_del, iface, netid)
-      iptables = "/sbin/" + iptables
-      ret = os.spawnvp(os.P_WAIT, iptables, args.split(" "))
+      iptables_path = "/sbin/" + iptables
+      if not os.access(iptables_path, os.X_OK):
+        iptables_path = "/system/bin" + iptables
+      ret = os.spawnvp(os.P_WAIT, iptables_path, args.split(" "))
       if ret:
         raise ConfigurationError("Setup command failed: %s" % args)
 
