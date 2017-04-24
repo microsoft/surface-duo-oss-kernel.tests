@@ -197,7 +197,10 @@ class MultiNetworkBaseTest(net_test.NetworkTest):
   @classmethod
   def CreateTunInterface(cls, netid):
     iface = cls.GetInterfaceName(netid)
-    f = open("/dev/net/tun", "r+b")
+    try:
+      f = open("/dev/net/tun", "r+b")
+    except IOError:
+      f = open("/dev/tun", "r+b")
     ifr = struct.pack("16sH", iface, IFF_TAP | IFF_NO_PI)
     ifr += "\x00" * (40 - len(ifr))
     fcntl.ioctl(f, TUNSETIFF, ifr)
