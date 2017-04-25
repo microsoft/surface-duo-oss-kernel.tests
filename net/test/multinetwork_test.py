@@ -58,8 +58,10 @@ class InboundMarkingTest(multinetwork_base.MultiNetworkBaseTest):
       iptables = {4: "iptables", 6: "ip6tables"}[version]
       args = "%s %s INPUT -t mangle -i %s -j MARK --set-mark %d" % (
           iptables, add_del, iface, netid)
-      iptables = "/sbin/" + iptables
-      ret = os.spawnvp(os.P_WAIT, iptables, args.split(" "))
+      iptables_path = "/sbin/" + iptables
+      if not os.access(iptables_path, os.X_OK):
+        iptables_path = "/system/bin" + iptables
+      ret = os.spawnvp(os.P_WAIT, iptables_path, args.split(" "))
       if ret:
         raise ConfigurationError("Setup command failed: %s" % args)
 
@@ -662,13 +664,16 @@ class RIOTest(multinetwork_base.MultiNetworkBaseTest):
       found = True
     self.assertTrue(found)
 
-  def DelRoute6(self, prefix, plen):
+  def DelRA6(self, prefix, plen):
     version = 6
     netid = self.NETID
     table = self._TableForNetid(netid)
     router = self._RouterAddress(netid, version)
     ifindex = self.ifindices[netid]
-    self.iproute.DelRoute(version, table, prefix, plen, router, ifindex)
+    # We actually want to specify RTPROT_RA, however an upstream
+    # kernel bug causes RAs to be installed with RTPROT_BOOT.
+    self.iproute._Route(version, iproute.RTPROT_BOOT, iproute.RTM_DELROUTE,
+                        table, prefix, plen, router, ifindex, None, None)
 
   def testSetAcceptRaRtInfoMinPlen(self):
     for plen in xrange(-1, 130):
@@ -738,7 +743,7 @@ class RIOTest(multinetwork_base.MultiNetworkBaseTest):
     time.sleep(0.01)
     routes = self.FindRoutesWithGateway()
     self.AssertExpirationInRange(routes, RTLIFETIME, 1)
-    self.DelRoute6(PREFIX, PLEN)
+    self.DelRA6(PREFIX, PLEN)
 
   def testEqualMinMaxAccept(self):
     PREFIX = "2001:db8:8905:2345::"
@@ -752,7 +757,7 @@ class RIOTest(multinetwork_base.MultiNetworkBaseTest):
     time.sleep(0.01)
     routes = self.FindRoutesWithGateway()
     self.AssertExpirationInRange(routes, RTLIFETIME, 1)
-    self.DelRoute6(PREFIX, PLEN)
+    self.DelRA6(PREFIX, PLEN)
 
   def testZeroLengthPrefix(self):
     PREFIX = "2001:db8:8906:2345::"
@@ -773,7 +778,7 @@ class RIOTest(multinetwork_base.MultiNetworkBaseTest):
     time.sleep(0.01)
     default = self.FindRoutesWithGateway()
     self.AssertExpirationInRange(default, RTLIFETIME, 1)
-    self.DelRoute6(PREFIX, PLEN)
+    self.DelRA6(PREFIX, PLEN)
 
   def testManyRIOs(self):
     RTLIFETIME = 68012
@@ -790,7 +795,7 @@ class RIOTest(multinetwork_base.MultiNetworkBaseTest):
     self.assertEquals(COUNT + baseline, self.CountRoutes())
     for i in xrange(0, COUNT):
       prefix = "2001:db8:%x:1100::" % i
-      self.DelRoute6(prefix, PLEN)
+      self.DelRA6(prefix, PLEN)
     # Expect that we can return to baseline config without lingering routes.
     self.assertEquals(baseline, self.CountRoutes())
 
