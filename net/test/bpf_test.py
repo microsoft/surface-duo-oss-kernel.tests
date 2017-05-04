@@ -16,6 +16,7 @@
 
 import ctypes
 import errno
+import os
 import socket
 import unittest
 
@@ -30,33 +31,43 @@ HAVE_EBPF_SUPPORT = net_test.LINUX_VERSION >= (4, 4, 0)
                      "eBPF function not fully supported")
 class BpfTest(net_test.NetworkTest):
 
+  def setUp(self):
+    self.map_fd = -1
+    self.prog_fd = -1
+
+  def tearDown(self):
+    if self.prog_fd >= 0:
+      os.close(self.prog_fd)
+    if self.map_fd >= 0:
+      os.close(self.map_fd)
+
   def testCreateMap(self):
     key, value = 1, 1
-    map_fd = CreateMap(BPF_MAP_TYPE_HASH, 4, 4, 100)
-    UpdateMap(map_fd, key, value)
-    self.assertEquals(LookupMap(map_fd, key).value, value)
-    DeleteMap(map_fd, key)
-    self.assertRaisesErrno(errno.ENOENT, LookupMap, map_fd, key)
+    self.map_fd = CreateMap(BPF_MAP_TYPE_HASH, 4, 4, 100)
+    UpdateMap(self.map_fd, key, value)
+    self.assertEquals(LookupMap(self.map_fd, key).value, value)
+    DeleteMap(self.map_fd, key)
+    self.assertRaisesErrno(errno.ENOENT, LookupMap, self.map_fd, key)
 
   def testIterateMap(self):
-    map_fd = CreateMap(BPF_MAP_TYPE_HASH, 4, 4, 100)
+    self.map_fd = CreateMap(BPF_MAP_TYPE_HASH, 4, 4, 100)
     value = 1024
     for key in xrange(1, 100):
-      UpdateMap(map_fd, key, value)
+      UpdateMap(self.map_fd, key, value)
     for key in xrange(1, 100):
-      self.assertEquals(LookupMap(map_fd, key).value, value)
-    self.assertRaisesErrno(errno.ENOENT, LookupMap, map_fd, 101)
+      self.assertEquals(LookupMap(self.map_fd, key).value, value)
+    self.assertRaisesErrno(errno.ENOENT, LookupMap, self.map_fd, 101)
     key = 0
     count = 0
     while 1:
       if count == 99:
-        self.assertRaisesErrno(errno.ENOENT, GetNextKey, map_fd, key)
+        self.assertRaisesErrno(errno.ENOENT, GetNextKey, self.map_fd, key)
         break
       else:
-        result = GetNextKey(map_fd, key)
+        result = GetNextKey(self.map_fd, key)
         key = result.value
         self.assertGreater(key, 0)
-        self.assertEquals(LookupMap(map_fd, key).value, value)
+        self.assertEquals(LookupMap(self.map_fd, key).value, value)
         count += 1
 
   def testProgLoad(self):
@@ -66,12 +77,12 @@ class BpfTest(net_test.NetworkTest):
     insn_buff = ctypes.create_string_buffer(bpf_prog)
     # Load a program that does nothing except pass every packet it receives
     # It should not block the packet transmission otherwise the test fails.
-    prog_fd = BpfProgLoad(BPF_PROG_TYPE_SOCKET_FILTER,
+    self.prog_fd = BpfProgLoad(BPF_PROG_TYPE_SOCKET_FILTER,
                           ctypes.addressof(insn_buff),
                           len(insn_buff), BpfInsn._length)
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, 0)
     sock.settimeout(1)
-    BpfProgAttach(sock.fileno(), prog_fd)
+    BpfProgAttachSocket(sock.fileno(), self.prog_fd)
     addr = "127.0.0.1"
     sock.bind((addr, 0))
     addr = sock.getsockname()
@@ -86,12 +97,12 @@ class BpfTest(net_test.NetworkTest):
     bpf_prog += BpfMov64Imm(BPF_REG_0, 0)
     bpf_prog += BpfExitInsn()
     insn_buff = ctypes.create_string_buffer(bpf_prog)
-    prog_fd = BpfProgLoad(BPF_PROG_TYPE_SOCKET_FILTER,
+    self.prog_fd = BpfProgLoad(BPF_PROG_TYPE_SOCKET_FILTER,
                           ctypes.addressof(insn_buff),
                           len(insn_buff), BpfInsn._length)
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, 0)
     sock.settimeout(1)
-    BpfProgAttach(sock.fileno(), prog_fd)
+    BpfProgAttachSocket(sock.fileno(), self.prog_fd)
     addr = "127.0.0.1"
     sock.bind((addr, 0))
     addr = sock.getsockname()
@@ -99,10 +110,10 @@ class BpfTest(net_test.NetworkTest):
     self.assertRaisesErrno(errno.EAGAIN, csocket.Recvfrom, sock, 4096, 0)
 
   def testPacketCount(self):
-    map_fd = CreateMap(BPF_MAP_TYPE_HASH, 4, 4, 100)
+    self.map_fd = CreateMap(BPF_MAP_TYPE_HASH, 4, 4, 10)
     key = 0xf0f0
     bpf_prog = BpfMov64Reg(BPF_REG_6, BPF_REG_1)
-    bpf_prog += BpfLoadMapFd(map_fd, BPF_REG_1)
+    bpf_prog += BpfLoadMapFd(self.map_fd, BPF_REG_1)
     bpf_prog += BpfMov64Imm(BPF_REG_7, key)
     bpf_prog += BpfStxMem(BPF_W, BPF_REG_10, BPF_REG_7, -4)
     bpf_prog += BpfMov64Reg(BPF_REG_8, BPF_REG_10)
@@ -110,7 +121,7 @@ class BpfTest(net_test.NetworkTest):
     bpf_prog += BpfMov64Reg(BPF_REG_2, BPF_REG_8)
     bpf_prog += BpfFuncLookupMap()
     bpf_prog += BpfJumpImm(BPF_AND, BPF_REG_0, 0, 10)
-    bpf_prog += BpfLoadMapFd(map_fd, BPF_REG_1)
+    bpf_prog += BpfLoadMapFd(self.map_fd, BPF_REG_1)
     bpf_prog += BpfMov64Reg(BPF_REG_2, BPF_REG_8)
     bpf_prog += BpfStMem(BPF_W, BPF_REG_10, -8, 1)
     bpf_prog += BpfMov64Reg(BPF_REG_3, BPF_REG_10)
@@ -129,12 +140,12 @@ class BpfTest(net_test.NetworkTest):
     # this program loaded is used to counting the packet transmitted through
     # a target socket. It will store the packet count into the eBPF map and we
     # will verify if the counting result is correct.
-    prog_fd = BpfProgLoad(BPF_PROG_TYPE_SOCKET_FILTER,
+    self.prog_fd = BpfProgLoad(BPF_PROG_TYPE_SOCKET_FILTER,
                           ctypes.addressof(insn_buff),
                           len(insn_buff), BpfInsn._length)
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, 0)
     sock.settimeout(1)
-    BpfProgAttach(sock.fileno(), prog_fd)
+    BpfProgAttachSocket(sock.fileno(), self.prog_fd)
     addr = "127.0.0.1"
     sock.bind((addr, 0))
     addr = sock.getsockname()
@@ -145,7 +156,7 @@ class BpfTest(net_test.NetworkTest):
       data, retaddr = csocket.Recvfrom(sock, 4096, 0)
       self.assertEqual("foo", data)
       self.assertEqual(sockaddr, retaddr)
-    self.assertEquals(LookupMap(map_fd, key).value, packet_count)
+    self.assertEquals(LookupMap(self.map_fd, key).value, packet_count)
 
 
 if __name__ == "__main__":

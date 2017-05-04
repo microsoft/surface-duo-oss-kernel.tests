@@ -199,7 +199,7 @@ def BpfProgLoad(prog_type, insn_ptr, prog_len, insn_len):
   return ret
 
 
-def BpfProgAttach(sock_fd, prog_fd):
+def BpfProgAttachSocket(sock_fd, prog_fd):
   prog_ptr = ctypes.c_uint32(prog_fd)
   ret = libc.setsockopt(sock_fd, socket.SOL_SOCKET, SO_ATTACH_BPF,
                         ctypes.addressof(prog_ptr), ctypes.sizeof(prog_ptr))
