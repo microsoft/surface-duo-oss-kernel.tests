@@ -38,29 +38,22 @@ class QtaguidTest(net_test.NetworkTest):
         return True
     return False
 
-  def SetIptablesRule(self, iptables, is_add, is_gid, my_id):
+  def SetIptablesRule(self, version, is_add, is_gid, my_id):
     add_del = "-A" if is_add else "-D"
     uid_gid = "--gid-owner" if is_gid else "--uid-owner"
-    args = "%s %s OUTPUT -m owner %s %d -j DROP" % (
-        iptables, add_del, uid_gid, my_id)
-    # TODO:refactor to a RunIptablesCommand helper method in net_test.py
-    iptables_path = "/sbin/" + iptables
-    if not os.access(iptables_path, os.X_OK):
-      iptables_path = "/system/bin/" + iptables
-    ret = os.spawnvp(os.P_WAIT, iptables_path, args.split(" "))
-    if ret:
-      raise ConfigurationError("Setup command failed: %s" % args)
+    args = "%s OUTPUT -m owner %s %d -j DROP" % (add_del, uid_gid, my_id)
+    self.assertFalse(net_test.RunIptablesCommand(version, args))
 
-  def CheckSocketOutput(self, family, is_gid):
-    iptables = {AF_INET: "iptables", AF_INET6: "ip6tables"}[family]
+  def CheckSocketOutput(self, version, is_gid):
     myId = os.getgid() if is_gid else os.getuid()
-    self.SetIptablesRule(iptables, True, is_gid, myId);
+    self.SetIptablesRule(version, True, is_gid, myId);
+    family = {4: AF_INET, 6: AF_INET6}[version]
     s = socket(family, SOCK_DGRAM, 0)
-    addr = {AF_INET: "127.0.0.1", AF_INET6: "::1"}[family]
+    addr = {4: "127.0.0.1", 6: "::1"}[version]
     s.bind((addr, 0))
     addr = s.getsockname()
     self.assertRaisesErrno(errno.EPERM, s.sendto, "foo", addr)
-    self.SetIptablesRule(iptables, False, is_gid, myId)
+    self.SetIptablesRule(version, False, is_gid, myId)
     s.sendto("foo", addr)
     data, sockaddr = s.recvfrom(4096)
     self.assertEqual("foo", data)
@@ -93,10 +86,10 @@ class QtaguidTest(net_test.NetworkTest):
     self.dev_file.close();
 
   def testUidGidMatch(self):
-    self.CheckSocketOutput(AF_INET, False)
-    self.CheckSocketOutput(AF_INET6, False)
-    self.CheckSocketOutput(AF_INET, True)
-    self.CheckSocketOutput(AF_INET6, True)
+    self.CheckSocketOutput(4, False)
+    self.CheckSocketOutput(6, False)
+    self.CheckSocketOutput(4, True)
+    self.CheckSocketOutput(6, True)
 
   @unittest.skip("does not pass on current kernels")
   def testCheckNotMatchGid(self):
