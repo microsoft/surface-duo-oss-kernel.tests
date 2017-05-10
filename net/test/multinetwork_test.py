@@ -43,6 +43,7 @@ TCP_MARK_ACCEPT_SYSCTL = "/proc/sys/net/ipv4/tcp_fwmark_accept"
 # The IP[V6]UNICAST_IF socket option was added between 3.1 and 3.4.
 HAVE_UNICAST_IF = net_test.LINUX_VERSION >= (3, 4, 0)
 
+
 class ConfigurationError(AssertionError):
   pass
 
@@ -56,13 +57,9 @@ class InboundMarkingTest(multinetwork_base.MultiNetworkBaseTest):
       iface = cls.GetInterfaceName(netid)
       add_del = "-A" if is_add else "-D"
       iptables = {4: "iptables", 6: "ip6tables"}[version]
-      args = "%s %s INPUT -t mangle -i %s -j MARK --set-mark %d" % (
-          iptables, add_del, iface, netid)
-      iptables_path = "/sbin/" + iptables
-      if not os.access(iptables_path, os.X_OK):
-        iptables_path = "/system/bin" + iptables
-      ret = os.spawnvp(os.P_WAIT, iptables_path, args.split(" "))
-      if ret:
+      args = "%s INPUT -t mangle -i %s -j MARK --set-mark %d" % (
+          add_del, iface, netid)
+      if net_test.RunIptablesCommand(version, args):
         raise ConfigurationError("Setup command failed: %s" % args)
 
   @classmethod
