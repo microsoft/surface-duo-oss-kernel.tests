@@ -59,7 +59,6 @@ class QtaguidTest(net_test.NetworkTest):
     self.assertEqual("foo", data)
     self.assertEqual(sockaddr, addr)
 
-  @unittest.skip("does not pass on current kernel")
   def testCloseWithoutUntag(self):
     self.dev_file = open("/dev/xt_qtaguid", "r");
     sk = socket(AF_INET, SOCK_DGRAM, 0)
@@ -72,7 +71,6 @@ class QtaguidTest(net_test.NetworkTest):
     self.assertFalse(self.CheckTag(tag, uid))
     self.dev_file.close();
 
-  @unittest.skip("does not pass on current kernel")
   def testTagWithoutDeviceOpen(self):
     sk = socket(AF_INET, SOCK_DGRAM, 0)
     uid = os.getuid()
