@@ -322,6 +322,14 @@ def SetFlowLabel(s, addr, label):
   # Caller also needs to do s.setsockopt(SOL_IPV6, IPV6_FLOWINFO_SEND, 1).
 
 
+def RunIptablesCommand(version, args):
+  iptables = {4: "iptables", 6: "ip6tables"}[version]
+  iptables_path = "/sbin/" + iptables
+  if not os.access(iptables_path, os.X_OK):
+    iptables_path = "/system/bin" + iptables
+  return os.spawnvp(os.P_WAIT, iptables_path, [iptables_path] + args.split(" "))
+
+
 # Determine network configuration.
 try:
   GetDefaultRoute(version=4)
@@ -334,10 +342,6 @@ try:
   HAVE_IPV6 = True
 except ValueError:
   HAVE_IPV6 = False
-
-
-CONTINUOUS_BUILD = re.search("net_test_mode=builder",
-                             open("/proc/cmdline").read())
 
 
 class RunAsUid(object):
