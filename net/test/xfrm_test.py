@@ -50,6 +50,7 @@ ALL_ALGORITHMS = 0xffffffff
 ALGO_CBC_AES_256 = xfrm.XfrmAlgo(("cbc(aes)", 256))
 ALGO_HMAC_SHA1 = xfrm.XfrmAlgoAuth(("hmac(sha1)", 128, 96))
 
+
 class XfrmTest(multinetwork_base.MultiNetworkBaseTest):
 
   @classmethod
@@ -60,7 +61,11 @@ class XfrmTest(multinetwork_base.MultiNetworkBaseTest):
   def setUp(self):
     # TODO: delete this when we're more diligent about deleting our SAs.
     super(XfrmTest, self).setUp()
-    subprocess.call("ip xfrm state flush".split())
+    self.xfrm.FlushSaInfo()
+
+  def tearDown(self):
+    super(XfrmTest, self).tearDown()
+    self.xfrm.FlushSaInfo()
 
   def expectIPv6EspPacketOn(self, netid, spi, seq, length):
     packets = self.ReadAllPacketsOn(netid)
@@ -100,6 +105,19 @@ class XfrmTest(multinetwork_base.MultiNetworkBaseTest):
     finally:
       self.xfrm.DeleteSaInfo(TEST_ADDR1, htonl(TEST_SPI), IPPROTO_ESP)
 
+  def testFlush(self):
+    self.assertEquals(0, len(self.xfrm.DumpSaInfo()))
+    self.xfrm.AddMinimalSaInfo("::", "2000::", htonl(TEST_SPI),
+                               IPPROTO_ESP, xfrm.XFRM_MODE_TRANSPORT, 1234,
+                               ALGO_CBC_AES_256, ENCRYPTION_KEY,
+                               ALGO_HMAC_SHA1, AUTH_TRUNC_KEY, None)
+    self.xfrm.AddMinimalSaInfo("0.0.0.0", "192.0.2.1", htonl(TEST_SPI),
+                               IPPROTO_ESP, xfrm.XFRM_MODE_TRANSPORT, 4321,
+                               ALGO_CBC_AES_256, ENCRYPTION_KEY,
+                               ALGO_HMAC_SHA1, AUTH_TRUNC_KEY, None)
+    self.assertEquals(2, len(self.xfrm.DumpSaInfo()))
+    self.xfrm.FlushSaInfo()
+    self.assertEquals(0, len(self.xfrm.DumpSaInfo()))
 
   @unittest.skipUnless(net_test.LINUX_VERSION < (4, 4, 0), "regression")
   def testSocketPolicy(self):
