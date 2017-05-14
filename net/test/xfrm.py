@@ -134,7 +134,8 @@ XfrmLifetimeCur = cstruct.Struct(
 
 XfrmAlgo = cstruct.Struct("XfrmAlgo", "=64AI", "name key_len")
 
-XfrmAlgoAuth = cstruct.Struct("XfrmAlgo", "=64AII", "name key_len trunc_len")
+XfrmAlgoAuth = cstruct.Struct("XfrmAlgoAuth", "=64AII",
+                              "name key_len trunc_len")
 
 XfrmAlgoAead = cstruct.Struct("XfrmAlgoAead", "=64AII", "name key_len icv_len")
 
@@ -164,6 +165,8 @@ XfrmUserpolicyInfo = cstruct.Struct(
     "sel lft curlft priority index dir action flags share",
     [XfrmSelector, XfrmLifetimeCfg, XfrmLifetimeCur])
 
+XfrmUsersaFlush = cstruct.Struct("XfrmUsersaFlush", "=B", "proto")
+
 # Socket options. See include/uapi/linux/in.h.
 IP_IPSEC_POLICY = 16
 IP_XFRM_POLICY = 17
@@ -178,6 +181,9 @@ UDP_ENCAP_ESPINUDP = 2
 _INF = 2 ** 64 -1
 NO_LIFETIME_CFG = XfrmLifetimeCfg((_INF, _INF, _INF, _INF, 0, 0, 0, 0))
 NO_LIFETIME_CUR = "\x00" * len(XfrmLifetimeCur)
+
+# IPsec constants.
+IPSEC_PROTO_ANY	= 255
 
 
 def RawAddress(addr):
@@ -281,6 +287,11 @@ class Xfrm(netlink.NetlinkSocket):
   def FindSaInfo(self, spi):
     sainfo = [sa for sa, attrs in self.DumpSaInfo() if sa.id.spi == spi]
     return sainfo[0] if sainfo else None
+
+  def FlushSaInfo(self):
+    usersa_flush = XfrmUsersaFlush((IPSEC_PROTO_ANY,))
+    flags = netlink.NLM_F_REQUEST | netlink.NLM_F_ACK
+    self._SendNlRequest(XFRM_MSG_FLUSHSA, usersa_flush.Pack(), flags)
 
 
 if __name__ == "__main__":
