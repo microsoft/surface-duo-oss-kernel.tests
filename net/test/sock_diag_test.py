@@ -18,7 +18,6 @@
 from errno import *  # pylint: disable=wildcard-import
 import os
 import random
-import re
 from socket import *  # pylint: disable=wildcard-import
 import threading
 import time
@@ -26,7 +25,6 @@ import unittest
 
 import multinetwork_base
 import net_test
-import netlink
 import packets
 import sock_diag
 import tcp_test

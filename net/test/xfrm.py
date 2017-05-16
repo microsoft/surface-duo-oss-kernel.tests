@@ -18,14 +18,9 @@
 
 # pylint: disable=g-bad-todo
 
-import errno
-import os
 from socket import *  # pylint: disable=wildcard-import
-import struct
 
-import csocket
 import cstruct
-import net_test
 import netlink
 
 # Base netlink constants. See include/uapi/linux/netlink.h.
