@@ -19,7 +19,6 @@ import ctypes.util
 import os
 import socket
 import struct
-import sys
 
 import cstruct
 
