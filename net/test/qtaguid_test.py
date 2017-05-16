@@ -20,7 +20,6 @@ import errno
 from socket import *  # pylint: disable=wildcard-import
 import unittest
 import os
-import csocket
 import net_test
 
 CTRL_PROCPATH = "/proc/net/xt_qtaguid/ctrl"
