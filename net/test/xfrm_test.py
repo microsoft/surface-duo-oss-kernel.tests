@@ -16,20 +16,15 @@
 
 # pylint: disable=g-bad-todo,g-bad-file-header,wildcard-import
 from errno import *  # pylint: disable=wildcard-import
-import os
 import random
-import re
 from scapy import all as scapy
 from socket import *  # pylint: disable=wildcard-import
 import struct
 import subprocess
-import time
 import unittest
 
 import multinetwork_base
 import net_test
-import netlink
-import packets
 import xfrm
 
 XFRM_ADDR_ANY = 16 * "\x00"

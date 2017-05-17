@@ -19,12 +19,9 @@
 # pylint: disable=g-bad-todo
 
 import errno
-import os
 import socket
 import struct
-import sys
 
-import csocket
 import cstruct
 import netlink
 
