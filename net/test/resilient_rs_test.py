@@ -14,19 +14,14 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import binascii
 import posix
-import os
 import select
 from socket import *  # pylint: disable=wildcard-import
-import threading
 import time
 import unittest
 from math import pow
 
-import cstruct
 import multinetwork_base
-import net_test
 
 def accumulate(lis):
   total = 0

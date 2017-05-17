@@ -14,7 +14,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import errno
 import fcntl
 import os
 import random
@@ -322,6 +321,14 @@ def SetFlowLabel(s, addr, label):
   # Caller also needs to do s.setsockopt(SOL_IPV6, IPV6_FLOWINFO_SEND, 1).
 
 
+def RunIptablesCommand(version, args):
+  iptables = {4: "iptables", 6: "ip6tables"}[version]
+  iptables_path = "/sbin/" + iptables
+  if not os.access(iptables_path, os.X_OK):
+    iptables_path = "/system/bin" + iptables
+  return os.spawnvp(os.P_WAIT, iptables_path, [iptables_path] + args.split(" "))
+
+
 # Determine network configuration.
 try:
   GetDefaultRoute(version=4)
@@ -335,29 +342,35 @@ try:
 except ValueError:
   HAVE_IPV6 = False
 
-
-CONTINUOUS_BUILD = re.search("net_test_mode=builder",
-                             open("/proc/cmdline").read())
-
-
-class RunAsUid(object):
+class RunAsUidGid(object):
   """Context guard to run a code block as a given UID."""
 
-  def __init__(self, uid):
+  def __init__(self, uid, gid):
     self.uid = uid
+    self.gid = gid
 
   def __enter__(self):
     if self.uid:
       self.saved_uid = os.geteuid()
       self.saved_groups = os.getgroups()
-      if self.uid:
-        os.setgroups(self.saved_groups + [AID_INET])
-        os.seteuid(self.uid)
+      os.setgroups(self.saved_groups + [AID_INET])
+      os.seteuid(self.uid)
+    if self.gid:
+      self.saved_gid = os.getgid()
+      os.setgid(self.gid)
 
   def __exit__(self, unused_type, unused_value, unused_traceback):
     if self.uid:
       os.seteuid(self.saved_uid)
       os.setgroups(self.saved_groups)
+    if self.gid:
+      os.setgid(self.saved_gid)
+
+class RunAsUid(RunAsUidGid):
+  """Context guard to run a code block as a given GID and UID."""
+
+  def __init__(self, uid):
+    RunAsUidGid.__init__(self, uid, 0)
 
 
 class NetworkTest(unittest.TestCase):
