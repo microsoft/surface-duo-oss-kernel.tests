@@ -375,9 +375,27 @@ class RunAsUid(RunAsUidGid):
 
 class NetworkTest(unittest.TestCase):
 
-  def assertRaisesErrno(self, err_num, f, *args):
+  def assertRaisesErrno(self, err_num, f=None, *args):
+    """Test that the system returns an errno error.
+
+    This works similarly to unittest.TestCase.assertRaises. You can call it as
+    an assertion, or use it as a context manager.
+    e.g.
+        self.assertRaisesErrno(errno.ENOENT, do_things, arg1, arg2)
+    or
+        with self.assertRaisesErrno(errno.ENOENT):
+          do_things(arg1, arg2)
+
+    Args:
+      err_num: an errno constant
+      f: (optional) A callable that should result in error
+      *args: arguments passed to f
+    """
     msg = os.strerror(err_num)
-    self.assertRaisesRegexp(EnvironmentError, msg, f, *args)
+    if f is None:
+      return self.assertRaisesRegexp(EnvironmentError, msg)
+    else:
+      self.assertRaisesRegexp(EnvironmentError, msg, f, *args)
 
   def ReadProcNetSocket(self, protocol):
     # Read file.
