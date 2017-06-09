@@ -329,6 +329,42 @@ class XfrmTest(multinetwork_base.MultiNetworkBaseTest):
                    scapy.UDP(sport=srcport, dport=53) / "foo")
     self.assertRaisesErrno(EAGAIN, twisted_socket.recv, 4096)
 
+  def testAllocSpecificSpi(self):
+    spi = 0xABCD
+    new_sa = self.xfrm.AllocSpi("::", IPPROTO_ESP, spi, spi)
+    self.assertEquals(spi, ntohl(new_sa.id.spi))
+
+  def testAllocSpecificSpiUnavailable(self):
+    """Attempt to allocate the same SPI twice."""
+    spi = 0xABCD
+    new_sa = self.xfrm.AllocSpi("::", IPPROTO_ESP, spi, spi)
+    self.assertEquals(spi, ntohl(new_sa.id.spi))
+    with self.assertRaisesErrno(ENOENT):
+      new_sa = self.xfrm.AllocSpi("::", IPPROTO_ESP, spi, spi)
+
+  def testAllocRangeSpi(self):
+    start, end = 0xABCD0, 0xABCDF
+    new_sa = self.xfrm.AllocSpi("::", IPPROTO_ESP, start, end)
+    spi = ntohl(new_sa.id.spi)
+    self.assertGreaterEqual(spi, start)
+    self.assertLessEqual(spi, end)
+
+  def testAllocRangeSpiUnavailable(self):
+    """Attempt to allocate N+1 SPIs from a range of size N."""
+    start, end = 0xABCD0, 0xABCDF
+    range_size = end - start + 1
+    spis = set()
+    # Assert that allocating SPI fails when none are available.
+    with self.assertRaisesErrno(ENOENT):
+      # Allocating range_size + 1 SPIs is guaranteed to fail.  Due to the way
+      # kernel picks random SPIs, this has a high probability of failing before
+      # reaching that limit.
+      for i in xrange(range_size + 1):
+        new_sa = self.xfrm.AllocSpi("::", IPPROTO_ESP, start, end)
+        spi = ntohl(new_sa.id.spi)
+        self.assertNotIn(spi, spis)
+        spis.add(spi)
+
 
 if __name__ == "__main__":
   unittest.main()
