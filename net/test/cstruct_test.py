@@ -110,6 +110,33 @@ class CstructTest(unittest.TestCase):
                 " int3=12345, ascii4=hello\x00visible123, word5=33210)")
     self.assertEquals(expected, str(t))
 
+  def testZeroInitialization(self):
+    TestStruct = cstruct.Struct("TestStruct", "B16si16AH",
+                                "byte1 string2 int3 ascii4 word5")
+    t = TestStruct()
+    self.assertEquals(0, t.byte1)
+    self.assertEquals("\x00" * 16, t.string2)
+    self.assertEquals(0, t.int3)
+    self.assertEquals("\x00" * 16, t.ascii4)
+    self.assertEquals(0, t.word5)
+    self.assertEquals("\x00" * len(TestStruct), t.Pack())
+
+  def testKeywordInitialization(self):
+    TestStruct = cstruct.Struct("TestStruct", "=B16sIH",
+                                "byte1 string2 int3 word4")
+    text = "hello world! ^_^"
+    text_bytes = text.encode("hex")
+
+    # Populate all fields
+    t1 = TestStruct(byte1=1, string2=text, int3=0xFEDCBA98, word4=0x1234)
+    expected = ("01" + text_bytes + "98BADCFE" "3412").decode("hex")
+    self.assertEquals(expected, t1.Pack())
+
+    # Partially populated
+    t1 = TestStruct(string2=text, word4=0x1234)
+    expected = ("00" + text_bytes + "00000000" "3412").decode("hex")
+    self.assertEquals(expected, t1.Pack())
+
 
 if __name__ == "__main__":
   unittest.main()
