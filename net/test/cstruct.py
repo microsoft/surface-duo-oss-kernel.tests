@@ -112,8 +112,7 @@ def Struct(name, fmt, fieldnames, substructs={}):
     # List of string fields that are ASCII strings.
     _asciiz = set()
 
-    if isinstance(_fieldnames, str):
-      _fieldnames = _fieldnames.split(" ")
+    _fieldnames = _fieldnames.split(" ")
 
     # Parse fmt into _format, converting any S format characters to "XXs",
     # where XX is the length of the struct type's packed representation.
@@ -136,6 +135,17 @@ def Struct(name, fmt, fieldnames, substructs={}):
         _format += fmt[i]
 
     _length = CalcSize(_format)
+
+    offset_list = [0]
+    last_offset = 0
+    for i in xrange(len(_format)):
+      offset = CalcSize(_format[:i])
+      if offset > last_offset:
+        last_offset = offset
+        offset_list.append(offset)
+
+    # A dictionary that maps field names to their offsets in the struct.
+    _offsets = dict(zip(_fieldnames, offset_list))
 
     def _SetValues(self, values):
       # Replace self._values with the given list. We can't do direct assignment
@@ -196,6 +206,11 @@ def Struct(name, fmt, fieldnames, substructs={}):
       # TODO: check value type against self._format and throw here, or else
       # callers get an unhelpful exception when they call Pack().
       self._values[self._FieldIndex(name)] = value
+
+    def offset(self, name):
+      if "." in name:
+        raise NotImplementedError("offset() on nested field")
+      return self._offsets[name]
 
     @classmethod
     def __len__(cls):
