@@ -18,25 +18,16 @@
 
 # pylint: disable=g-bad-todo
 
+from socket import AF_INET
+from socket import AF_INET6
+
 import errno
+import os
 import socket
 import struct
 
 import cstruct
 import netlink
-
-### Base netlink constants. See include/uapi/linux/netlink.h.
-NETLINK_ROUTE = 0
-
-# Data structure formats.
-# These aren't constants, they're classes. So, pylint: disable=invalid-name
-NLMsgHdr = cstruct.Struct("NLMsgHdr", "=LHHLL", "length type flags seq pid")
-NLMsgErr = cstruct.Struct("NLMsgErr", "=i", "error")
-NLAttr = cstruct.Struct("NLAttr", "=HH", "nla_len nla_type")
-
-# Alignment / padding.
-NLA_ALIGNTO = 4
-
 
 ### rtnetlink constants. See include/uapi/linux/rtnetlink.h.
 # Message types.
@@ -161,16 +152,27 @@ FRA_UID_RANGE = 20
 FibRuleUidRange = cstruct.Struct("FibRuleUidRange", "=II", "start end")
 
 # Link constants. See include/uapi/linux/if_link.h.
+IFLA_UNSPEC = 0
 IFLA_ADDRESS = 1
 IFLA_BROADCAST = 2
 IFLA_IFNAME = 3
 IFLA_MTU = 4
+IFLA_LINK = 5
 IFLA_QDISC = 6
 IFLA_STATS = 7
+IFLA_COST = 8
+IFLA_PRIORITY = 9
+IFLA_MASTER = 10
+IFLA_WIRELESS = 11
+IFLA_PROTINFO = 12
 IFLA_TXQLEN = 13
 IFLA_MAP = 14
+IFLA_WEIGHT = 15
 IFLA_OPERSTATE = 16
 IFLA_LINKMODE = 17
+IFLA_LINKINFO = 18
+IFLA_NET_NS_PID = 19
+IFLA_IFALIAS = 20
 IFLA_STATS64 = 23
 IFLA_AF_SPEC = 26
 IFLA_GROUP = 27
@@ -179,6 +181,20 @@ IFLA_PROMISCUITY = 30
 IFLA_NUM_TX_QUEUES = 31
 IFLA_NUM_RX_QUEUES = 32
 IFLA_CARRIER = 33
+
+# linux/include/uapi/if_link.h
+IFLA_INFO_UNSPEC = 0
+IFLA_INFO_KIND = 1
+IFLA_INFO_DATA = 2
+IFLA_INFO_XSTATS = 3
+
+# linux/if_tunnel.h
+IFLA_VTI_UNSPEC = 0
+IFLA_VTI_LINK = 1
+IFLA_VTI_IKEY = 2
+IFLA_VTI_OKEY = 3
+IFLA_VTI_LOCAL = 4
+IFLA_VTI_REMOTE = 5
 
 
 def CommandVerb(command):
@@ -198,11 +214,6 @@ def CommandName(command):
 
 class IPRoute(netlink.NetlinkSocket):
   """Provides a tiny subset of iproute functionality."""
-
-  FAMILY = NETLINK_ROUTE
-
-  def _NlAttrIPAddress(self, nla_type, family, address):
-    return self._NlAttr(nla_type, socket.inet_pton(family, address))
 
   def _NlAttrInterfaceName(self, nla_type, interface):
     return self._NlAttr(nla_type, interface + "\x00")
@@ -291,10 +302,10 @@ class IPRoute(netlink.NetlinkSocket):
     return name, data
 
   def __init__(self):
-    super(IPRoute, self).__init__()
+    super(IPRoute, self).__init__(netlink.NETLINK_ROUTE)
 
   def _AddressFamily(self, version):
-    return {4: socket.AF_INET, 6: socket.AF_INET6}[version]
+    return {4: AF_INET, 6: AF_INET6}[version]
 
   def _SendNlRequest(self, command, data, flags=0):
     """Sends a netlink request and expects an ack."""
@@ -399,11 +410,11 @@ class IPRoute(netlink.NetlinkSocket):
     print self.CommandToString(command, data)
 
   def MaybeDebugMessage(self, message):
-    hdr = NLMsgHdr(message)
+    hdr = netlink.NLMsgHdr(message)
     self.MaybeDebugCommand(hdr.type, message)
 
   def PrintMessage(self, message):
-    hdr = NLMsgHdr(message)
+    hdr = netlink.NLMsgHdr(message)
     print self.CommandToString(hdr.type, message)
 
   def DumpRules(self, version):
@@ -492,7 +503,7 @@ class IPRoute(netlink.NetlinkSocket):
                 oif, mark, uid)
     data = self._Recv()
     # The response will either be an error or a list of routes.
-    if NLMsgHdr(data).type == netlink.NLMSG_ERROR:
+    if netlink.NLMsgHdr(data).type == netlink.NLMSG_ERROR:
       self._ParseAck(data)
     routes = self._GetMsgList(RTMsg, data, False)
     return routes
@@ -537,6 +548,73 @@ class IPRoute(netlink.NetlinkSocket):
   def ParseNeighbourMessage(self, msg):
     msg, _ = self._ParseNLMsg(msg, NdMsg)
     return msg
+
+  def DeleteLink(self, dev_name):
+    ifinfo = IfinfoMsg().Pack()
+    ifinfo += self._NlAttrStr(IFLA_IFNAME, dev_name)
+    flags = netlink.NLM_F_REQUEST | netlink.NLM_F_ACK
+    return self._SendNlRequest(RTM_DELLINK, ifinfo, flags)
+
+  def GetIfIndex(self, dev_name):
+    ifinfo = IfinfoMsg().Pack()
+    ifinfo += self._NlAttrStr(IFLA_IFNAME, dev_name)
+    self._SendNlRequest(RTM_GETLINK, ifinfo, netlink.NLM_F_REQUEST)
+    hdr, data = cstruct.Read(self._Recv(), netlink.NLMsgHdr)
+    if hdr.type == RTM_NEWLINK:
+      return IfinfoMsg(data).index
+    elif hdr.type == netlink.NLMSG_ERROR:
+      error = netlink.NLMsgErr(data).error
+      raise IOError(error, os.strerror(-error))
+    else:
+      raise ValueError("Unknown Netlink Message Type %d" % hdr.type)
+
+  def CreateVirtualTunnelInterface(self, dev_name, local_addr, remote_addr,
+                                   i_key=None, o_key=None):
+    """
+    Create a Virtual Tunnel Interface that provides a proxy interface
+    for IPsec tunnels.
+
+    The VTI Newlink structure is a series of nested netlink
+    attributes following a mostly-ignored 'struct ifinfomsg':
+
+    NLMSGHDR (type=RTM_NEWLINK)
+    |
+    |-{IfinfoMsg}
+    |
+    |-IFLA_IFNAME = <user-provided ifname>
+    |
+    |-IFLA_LINKINFO
+      |
+      |-IFLA_INFO_KIND = "vti"
+      |
+      |-IFLA_INFO_DATA
+        |
+        |-IFLA_VTI_LOCAL = <local addr>
+        |-IFLA_VTI_REMOTE = <remote addr>
+        |-IFLA_VTI_LINK = ????
+        |-IFLA_VTI_OKEY = [outbound mark]
+        |-IFLA_VTI_IKEY = [inbound mark]
+    """
+    family = AF_INET6 if ":" in remote_addr else AF_INET
+
+    ifinfo = IfinfoMsg().Pack()
+    ifinfo += self._NlAttrStr(IFLA_IFNAME, dev_name)
+
+    linkinfo = self._NlAttrStr(IFLA_INFO_KIND,
+        {AF_INET6: "vti6", AF_INET: "vti"}[family])
+
+    ifdata = self._NlAttrIPAddress(IFLA_VTI_LOCAL, family, local_addr)
+    ifdata += self._NlAttrIPAddress(IFLA_VTI_REMOTE, family,
+                                    remote_addr)
+    if i_key is not None:
+      ifdata += self._NlAttrU32(IFLA_VTI_IKEY, socket.htonl(i_key))
+    if o_key is not None:
+      ifdata += self._NlAttrU32(IFLA_VTI_OKEY, socket.htonl(o_key))
+    linkinfo += self._NlAttr(IFLA_INFO_DATA, ifdata)
+
+    ifinfo += self._NlAttr(IFLA_LINKINFO, linkinfo)
+
+    return self._SendNlRequest(RTM_NEWLINK, ifinfo)
 
 
 if __name__ == "__main__":
