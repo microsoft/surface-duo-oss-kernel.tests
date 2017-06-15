@@ -137,6 +137,32 @@ class CstructTest(unittest.TestCase):
     expected = ("00" + text_bytes + "00000000" "3412").decode("hex")
     self.assertEquals(expected, t1.Pack())
 
+  def testCstructOffset(self):
+    TestStruct = cstruct.Struct("TestStruct", "B16si16AH",
+                                "byte1 string2 int3 ascii4 word5")
+    nullstr = "hello" + (16 - len("hello")) * "\x00"
+    t = TestStruct((2, nullstr, 12345, nullstr, 33210))
+    self.assertEquals(0, t.offset("byte1"))
+    self.assertEquals(1, t.offset("string2"))  # sizeof(byte)
+    self.assertEquals(17, t.offset("int3"))    # sizeof(byte) + 16*sizeof(char)
+    # The integer is automatically padded by the struct module
+    # to match native alignment.
+    # offset = sizeof(byte) + 16*sizeof(char) + padding + sizeof(int)
+    self.assertEquals(24, t.offset("ascii4"))
+    self.assertEquals(40, t.offset("word5"))
+    self.assertRaises(KeyError, t.offset, "random")
+
+    # TODO: Add support for nested struct offset
+    Nested = cstruct.Struct("Nested", "!HSSi", "word1 nest2 nest3 int4",
+                            [TestStructA, TestStructB])
+    DoubleNested = cstruct.Struct("DoubleNested", "SSB", "nest1 nest2 byte3",
+                                  [TestStructA, Nested])
+    d = DoubleNested((TestStructA((1, 2)), Nested((5, TestStructA((3, 4)),
+                                                   TestStructB((7, 8)), 9)), 6))
+    self.assertEqual(0, d.offset("nest1"))
+    self.assertEqual(len(TestStructA), d.offset("nest2"))
+    self.assertEqual(len(TestStructA) + len(Nested), d.offset("byte3"))
+    self.assertRaises(KeyError, t.offset, "word1")
 
 if __name__ == "__main__":
   unittest.main()
