@@ -52,7 +52,6 @@ class TunTwister(object):
       # Set up routing so packets go to my_tun.
 
       def ValidatePortNumber(packet):
-        packet = scapy.IP(packet)  # convert bytes to object
         self.assertEquals(8080, packet.getlayer(scapy.UDP).sport)
         self.assertEquals(8080, packet.getlayer(scapy.UDP).dport)
 
@@ -76,12 +75,12 @@ class TunTwister(object):
 
     The TunTwister will listen on the given TUN fd.
     The validator is called for each packet *before* twisting. The packet is
-    passed in as a byte string, and is the only argument passed to the
+    passed in as a scapy packet object, and is the only argument passed to the
     validator.
 
     Args:
       fd: File descriptor of a TUN interface.
-      validator: Function taking one byte string argument.
+      validator: Function taking one scapy packet object argument.
     """
     self._fd = fd
     # Use a pipe to signal the thread to exit.
@@ -132,7 +131,7 @@ class TunTwister(object):
     bytes_in = os.read(self._fd, TunTwister._READ_BUF_SIZE)
     packet = self._DecodePacket(bytes_in)
     if self._validator:
-      self._validator(packet.build())
+      self._validator(packet)
     packet = self._TwistPacket(packet)
     os.write(self._fd, packet.build())
 
@@ -177,7 +176,7 @@ class TapTwister(TunTwister):
 
     Args:
       fd: File descriptor of a TAP interface.
-      validator: Function taking one byte string argument.
+      validator: Function taking one scapy packet object argument.
     """
     super(TapTwister, self).__init__(fd=fd, validator=validator)
 
