@@ -167,6 +167,8 @@ XfrmUserpolicyInfo = cstruct.Struct(
 
 XfrmUsersaFlush = cstruct.Struct("XfrmUsersaFlush", "=B", "proto")
 
+XfrmMark = cstruct.Struct("XfrmMark", "II", "mark mask")
+
 # Socket options. See include/uapi/linux/in.h.
 IP_IPSEC_POLICY = 16
 IP_XFRM_POLICY = 17
@@ -249,16 +251,19 @@ class Xfrm(netlink.NetlinkSocket):
 
     return name, data
 
-  def AddPolicyInfo(self, policy, tmpl):
+  def AddPolicyInfo(self, policy, tmpl, mark):
     """Add a new policy to the Security Policy Database
 
     Args:
       policy: an unpacked XfrmUserpolicyInfo cstruct
       tmpl: an unpacked XfrmUserTmpl cstruct
+      mark: an unpacked XfrmMark cstruct
     """
-    nlattrs = None
+    nlattrs = []
     if tmpl:
-      nlattrs = [(XFRMA_TMPL, tmpl)]
+      nlattrs.append((XFRMA_TMPL, tmpl))
+    if mark:
+      nlattrs.append((XFRMA_MARK, mark))
     self.SendXfrmNlRequest(XFRM_MSG_NEWPOLICY, policy, nlattrs)
 
   # TODO: this function really needs to be in netlink.py
@@ -295,7 +300,8 @@ class Xfrm(netlink.NetlinkSocket):
 
   def AddMinimalSaInfo(self, src, dst, spi, proto, mode, reqid,
                        encryption, encryption_key,
-                       auth_trunc, auth_trunc_key, encap):
+                       auth_trunc, auth_trunc_key, encap,
+                       mark, mark_mask):
     selector = XfrmSelector("\x00" * len(XfrmSelector))
     xfrm_id = XfrmId((PaddedAddress(dst), spi, proto))
     family = AF_INET6 if ":" in dst else AF_INET
@@ -303,6 +309,9 @@ class Xfrm(netlink.NetlinkSocket):
                            encryption.Pack() + encryption_key)
     nlattrs += self._NlAttr(XFRMA_ALG_AUTH_TRUNC,
                             auth_trunc.Pack() + auth_trunc_key)
+    # if a user provides either mark or mask, then we send the mark attribute
+    if mark or mark_mask:
+      nlattrs += self._NlAttr(XFRMA_MARK, XfrmMark((mark, mark_mask)).Pack())
     if encap is not None:
       nlattrs += self._NlAttr(XFRMA_ENCAP, encap.Pack())
     self.AddSaInfo(selector, xfrm_id, PaddedAddress(src), NO_LIFETIME_CFG,
