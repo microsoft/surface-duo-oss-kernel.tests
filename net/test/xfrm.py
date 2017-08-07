@@ -20,6 +20,7 @@
 
 import os
 from socket import *  # pylint: disable=wildcard-import
+import struct
 
 import cstruct
 import netlink
@@ -82,6 +83,8 @@ XFRMA_SA_EXTRA_FLAGS = 24
 XFRMA_PROTO = 25
 XFRMA_ADDRESS_FILTER = 26
 XFRMA_PAD = 27
+XFRMA_OFFLOAD_DEV = 28
+XFRMA_OUTPUT_MARK = 29
 
 # Other netlink constants. See include/uapi/linux/xfrm.h.
 
@@ -175,7 +178,7 @@ XfrmUserpolicyInfo = cstruct.Struct(
 
 XfrmUsersaFlush = cstruct.Struct("XfrmUsersaFlush", "=B", "proto")
 
-XfrmMark = cstruct.Struct("XfrmMark", "II", "mark mask")
+XfrmMark = cstruct.Struct("XfrmMark", "=II", "mark mask")
 
 # Socket options. See include/uapi/linux/in.h.
 IP_IPSEC_POLICY = 16
@@ -259,6 +262,10 @@ class Xfrm(netlink.NetlinkSocket):
       data = cstruct.Read(nla_data, XfrmAlgoAuth)[0]
     elif name == "XFRMA_ENCAP":
       data = cstruct.Read(nla_data, XfrmEncapTmpl)[0]
+    elif name == "XFRMA_MARK":
+      data = cstruct.Read(nla_data, XfrmMark)[0]
+    elif name == "XFRMA_OUTPUT_MARK":
+      data = struct.unpack("=I", nla_data)[0]
     else:
       data = nla_data
 
@@ -314,7 +321,7 @@ class Xfrm(netlink.NetlinkSocket):
   def AddMinimalSaInfo(self, src, dst, spi, proto, mode, reqid,
                        encryption, encryption_key,
                        auth_trunc, auth_trunc_key, encap,
-                       mark, mark_mask):
+                       mark, mark_mask, output_mark):
     selector = XfrmSelector("\x00" * len(XfrmSelector))
     xfrm_id = XfrmId((PaddedAddress(dst), spi, proto))
     family = AF_INET6 if ":" in dst else AF_INET
@@ -327,6 +334,8 @@ class Xfrm(netlink.NetlinkSocket):
       nlattrs += self._NlAttr(XFRMA_MARK, XfrmMark((mark, mark_mask)).Pack())
     if encap is not None:
       nlattrs += self._NlAttr(XFRMA_ENCAP, encap.Pack())
+    if output_mark is not None:
+      nlattrs += self._NlAttrU32(XFRMA_OUTPUT_MARK, output_mark)
     self.AddSaInfo(selector, xfrm_id, PaddedAddress(src), NO_LIFETIME_CFG,
                    reqid, family, mode, 4, 0, nlattrs)
 
