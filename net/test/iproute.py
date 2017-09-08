@@ -60,6 +60,7 @@ RTM_GETRULE = 34
 RTN_UNSPEC = 0
 RTN_UNICAST = 1
 RTN_UNREACHABLE = 7
+RTN_THROW = 9
 
 # Routing protocol values (rtm_protocol).
 RTPROT_UNSPEC = 0
@@ -450,12 +451,12 @@ class IPRoute(netlink.NetlinkSocket):
     return self._GetMsg(IfAddrMsg)
 
   def _Route(self, version, proto, command, table, dest, prefixlen, nexthop,
-             dev, mark, uid):
+             dev, mark, uid, route_type=RTN_UNICAST, priority=None):
     """Adds, deletes, or queries a route."""
     family = self._AddressFamily(version)
     scope = RT_SCOPE_UNIVERSE if nexthop else RT_SCOPE_LINK
     rtmsg = RTMsg((family, prefixlen, 0, 0, RT_TABLE_UNSPEC,
-                   proto, scope, RTN_UNICAST, 0)).Pack()
+                   proto, scope, route_type, 0)).Pack()
     if command == RTM_NEWROUTE and not table:
       # Don't allow setting routes in table 0, since its behaviour is confusing
       # and differs between IPv4 and IPv6.
@@ -472,6 +473,8 @@ class IPRoute(netlink.NetlinkSocket):
       rtmsg += self._NlAttrU32(RTA_MARK, mark)
     if uid is not None:
       rtmsg += self._NlAttrU32(RTA_UID, uid)
+    if priority is not None:
+      rtmsg += self._NlAttrU32(RTA_PRIORITY, priority)
     self._SendNlRequest(command, rtmsg)
 
   def AddRoute(self, version, table, dest, prefixlen, nexthop, dev):
