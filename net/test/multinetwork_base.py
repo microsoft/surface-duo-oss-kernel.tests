@@ -503,11 +503,13 @@ class MultiNetworkBaseTest(net_test.NetworkTest):
           raise e
     return packets
 
-  def InvalidateDstCache(self, version, remoteaddr, netid):
-    """Invalidates destination cache entries of sockets to remoteaddr.
+  def InvalidateDstCache(self, version, netid):
+    """Invalidates destination cache entries of sockets on the specified table.
 
-    Creates and then deletes a route pointing to remoteaddr, which invalidates
-    the destination cache entries of any sockets connected to remoteaddr.
+    Creates and then deletes a low-priority throw route in the table for the
+    given netid, which invalidates the destination cache entries of any sockets
+    that refer to routes in that table.
+
     The fact that this method actually invalidates destination cache entries is
     tested by OutgoingTest#testIPv[46]Remarking, which checks that the kernel
     does not re-route sockets when they are remarked, but does re-route them if
@@ -515,16 +517,16 @@ class MultiNetworkBaseTest(net_test.NetworkTest):
 
     Args:
       version: The IP version, 4 or 6.
-      remoteaddr: The IP address to temporarily reroute.
-      netid: The netid to add/remove the route to.
+      netid: The netid to invalidate dst caches on.
     """
     iface = self.GetInterfaceName(netid)
     ifindex = self.ifindices[netid]
     table = self._TableForNetid(netid)
-    nexthop = self._RouterAddress(netid, version)
-    plen = {4: 32, 6: 128}[version]
-    self.iproute.AddRoute(version, table, remoteaddr, plen, nexthop, ifindex)
-    self.iproute.DelRoute(version, table, remoteaddr, plen, nexthop, ifindex)
+    for action in [iproute.RTM_NEWROUTE, iproute.RTM_DELROUTE]:
+      self.iproute._Route(version, iproute.RTPROT_STATIC, action, table,
+                          "default", 0, nexthop=None, dev=None, mark=None,
+                          uid=None, route_type=iproute.RTN_THROW,
+                          priority=100000)
 
   def ClearTunQueues(self):
     # Keep reading packets on all netids until we get no packets on any of them.
