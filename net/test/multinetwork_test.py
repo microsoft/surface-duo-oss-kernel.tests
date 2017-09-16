@@ -262,7 +262,7 @@ class OutgoingTest(multinetwork_base.MultiNetworkBaseTest):
           if prevnetid:
             ExpectSendUsesNetid(prevnetid)
             # ... until we invalidate it.
-            self.InvalidateDstCache(version, dstaddr, prevnetid)
+            self.InvalidateDstCache(version, prevnetid)
           ExpectSendUsesNetid(netid)
         else:
           ExpectSendUsesNetid(netid)
@@ -454,7 +454,7 @@ class TCPAcceptTest(InboundMarkingTest):
     establishing_ack = packets.ACK(version, remoteaddr, myaddr, reply)[1]
 
     # Attempt to confuse the kernel.
-    self.InvalidateDstCache(version, remoteaddr, netid)
+    self.InvalidateDstCache(version, netid)
 
     self.ReceivePacketOn(netid, establishing_ack)
 
@@ -471,18 +471,18 @@ class TCPAcceptTest(InboundMarkingTest):
                                payload=UDP_PAYLOAD)
       s.send(UDP_PAYLOAD)
       self.ExpectPacketOn(netid, msg + ": expecting %s" % desc, data)
-      self.InvalidateDstCache(version, remoteaddr, netid)
+      self.InvalidateDstCache(version, netid)
 
       # Keep up our end of the conversation.
       ack = packets.ACK(version, remoteaddr, myaddr, data)[1]
-      self.InvalidateDstCache(version, remoteaddr, netid)
+      self.InvalidateDstCache(version, netid)
       self.ReceivePacketOn(netid, ack)
 
       mark = self.GetSocketMark(s)
     finally:
-      self.InvalidateDstCache(version, remoteaddr, netid)
+      self.InvalidateDstCache(version, netid)
       s.close()
-      self.InvalidateDstCache(version, remoteaddr, netid)
+      self.InvalidateDstCache(version, netid)
 
     if mode == self.MODE_INCOMING_MARK:
       self.assertEquals(netid, mark,
