@@ -612,9 +612,12 @@ class SockDestroyTcpTest(tcp_test.TcpBaseTest, SockDiagBaseTest):
     """Tests that accept() is interrupted by SOCK_DESTROY."""
     for version in [4, 5, 6]:
       self.IncomingConnection(version, tcp_test.TCP_LISTEN, self.netid)
+      self.assertRaisesErrno(ENOTCONN, self.s.recv, 4096)
       self.CloseDuringBlockingCall(self.s, lambda sock: sock.accept(), EINVAL)
       self.assertRaisesErrno(ECONNABORTED, self.s.send, "foo")
       self.assertRaisesErrno(EINVAL, self.s.accept)
+      # TODO: this should really return an error such as ENOTCONN...
+      self.assertEquals("", self.s.recv(4096))
 
   def testReadInterrupted(self):
     """Tests that read() is interrupted by SOCK_DESTROY."""
@@ -622,7 +625,10 @@ class SockDestroyTcpTest(tcp_test.TcpBaseTest, SockDiagBaseTest):
       self.IncomingConnection(version, tcp_test.TCP_ESTABLISHED, self.netid)
       self.CloseDuringBlockingCall(self.accepted, lambda sock: sock.recv(4096),
                                    ECONNABORTED)
+      # Writing returns EPIPE, and reading returns EOF.
       self.assertRaisesErrno(EPIPE, self.accepted.send, "foo")
+      self.assertEquals("", self.accepted.recv(4096))
+      self.assertEquals("", self.accepted.recv(4096))
 
   def testConnectInterrupted(self):
     """Tests that connect() is interrupted by SOCK_DESTROY."""
