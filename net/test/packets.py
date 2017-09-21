@@ -92,7 +92,8 @@ def RST(version, srcaddr, dstaddr, packet):
   return ("TCP RST",
           ip(src=srcaddr, dst=dstaddr) /
           scapy.TCP(sport=original.dport, dport=original.sport,
-                    ack=original.seq + was_syn_or_fin, seq=None,
+                    ack=original.seq + was_syn_or_fin,
+                    seq=original.ack,
                     flags=TCP_RST | TCP_ACK, window=TCP_WINDOW))
 
 def SYNACK(version, srcaddr, dstaddr, packet):

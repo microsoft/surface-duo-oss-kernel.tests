@@ -64,6 +64,14 @@ class TcpBaseTest(multinetwork_base.MultiNetworkBaseTest):
     super(TcpBaseTest, self).ReceivePacketOn(netid, packet)
     self.last_packet = packet
 
+  def ReceiveRstPacketOn(self, netid):
+    # self.last_packet is the last packet we received. Invert direction twice.
+    _, ack = packets.ACK(self.version, self.myaddr, self.remoteaddr,
+                         self.last_packet)
+    desc, rst = packets.RST(self.version, self.remoteaddr, self.myaddr,
+                            ack)
+    super(TcpBaseTest, self).ReceivePacketOn(netid, rst)
+
   def RstPacket(self):
     return packets.RST(self.version, self.myaddr, self.remoteaddr,
                        self.last_packet)
