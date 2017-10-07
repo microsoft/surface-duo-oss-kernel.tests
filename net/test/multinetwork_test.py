@@ -1161,6 +1161,16 @@ class UidRoutingTest(multinetwork_base.MultiNetworkBaseTest):
   def testIPv6GetAndSetRules(self):
     self.CheckGetAndSetRules(6)
 
+  @unittest.skipUnless(net_test.LINUX_VERSION >= (4, 9, 0), "not backported")
+  def testDeleteErrno(self):
+    for version in [4, 6]:
+      table = self._Random()
+      priority = self._Random()
+      self.assertRaisesErrno(
+          errno.EINVAL,
+          self.iproute.UidRangeRule, version, False, 100, 0xffffffff, table,
+          priority)
+
   def ExpectNoRoute(self, addr, oif, mark, uid):
     # The lack of a route may be either an error, or an unreachable route.
     try:
