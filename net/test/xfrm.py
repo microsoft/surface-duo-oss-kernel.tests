@@ -113,6 +113,14 @@ XFRM_POLICY_BLOCK = 1
 XFRM_POLICY_LOCALOK = 1
 XFRM_POLICY_ICMP = 2
 
+# XFRM algorithm names, as defined in net/xfrm/xfrm_algo.c.
+XFRM_EALG_CBC_AES = "cbc(aes)"
+XFRM_AALG_HMAC_MD5 = "hmac(md5)"
+XFRM_AALG_HMAC_SHA1 = "hmac(sha1)"
+XFRM_AALG_HMAC_SHA256 = "hmac(sha256)"
+XFRM_AALG_HMAC_SHA384 = "hmac(sha384)"
+XFRM_AALG_HMAC_SHA512 = "hmac(sha512)"
+
 # Data structure formats.
 # These aren't constants, they're classes. So, pylint: disable=invalid-name
 XfrmSelector = cstruct.Struct(
