@@ -226,7 +226,6 @@ class XfrmTest(multinetwork_base.MultiNetworkBaseTest):
     self.xfrm.FlushSaInfo()
     self.assertEquals(0, len(self.xfrm.DumpSaInfo()))
 
-  @unittest.skipUnless(net_test.LINUX_VERSION < (4, 4, 0), "regression")
   def testSocketPolicy(self):
     # Open an IPv6 UDP socket and connect it.
     s = socket(AF_INET6, SOCK_DGRAM, 0)
@@ -264,6 +263,14 @@ class XfrmTest(multinetwork_base.MultiNetworkBaseTest):
     # Set the policy and template on our socket.
     data = info.Pack() + tmpl.Pack()
     s.setsockopt(IPPROTO_IPV6, xfrm.IPV6_XFRM_POLICY, data)
+
+    # Invalidate destination cache entries, so that future sends on the socket
+    # use the socket policy we've just applied instead of being sent in the
+    # clear due to the previously-cached dst cache entry.
+    #
+    # TODO: fix this problem in the kernel, as this workaround cannot be used in
+    # on-device code.
+    self.InvalidateDstCache(6, netid)
 
     # Because the policy has level set to "require" (the default), attempting
     # to send a packet results in an error, because there is no SA that
