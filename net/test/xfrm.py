@@ -195,6 +195,11 @@ NO_LIFETIME_CUR = "\x00" * len(XfrmLifetimeCur)
 # IPsec constants.
 IPSEC_PROTO_ANY	= 255
 
+# ESP header, not technically XFRM but we need a place for a protocol
+# header and this is the only one we have.
+# TODO: move this somewhere more appropriate when possible
+EspHdr = cstruct.Struct("EspHdr", "!II", "spi seqnum")
+
 
 def RawAddress(addr):
   """Converts an IP address string to binary format."""
