@@ -89,8 +89,14 @@ def ApplySocketPolicy(sock, family, direction, spi, reqid):
     reqid: 32-bit ID matched against SAs
   Return: a tuple of XfrmUserpolicyInfo, XfrmUserTmpl
   """
+  # Create a selector that matches all packets of the specified address family.
+  # It's not actually used to select traffic, that will be done by the socket
+  # policy, which selects the SA entry (i.e., xfrm state) via the SPI and reqid.
   selector = xfrm.XfrmSelector(
       daddr=XFRM_ADDR_ANY, saddr=XFRM_ADDR_ANY, family=family)
+
+  # Create a user policy that specifies that all outbound packets matching the
+  # (essentially no-op) selector should be encrypted.
   policy = xfrm.XfrmUserpolicyInfo(
       sel=selector,
       lft=xfrm.NO_LIFETIME_CFG,
@@ -99,6 +105,8 @@ def ApplySocketPolicy(sock, family, direction, spi, reqid):
       action=xfrm.XFRM_POLICY_ALLOW,
       flags=xfrm.XFRM_POLICY_LOCALOK,
       share=xfrm.XFRM_SHARE_UNIQUE)
+
+  # Create a template that specifies the SPI and the protocol.
   xfrmid = xfrm.XfrmId(daddr=XFRM_ADDR_ANY, spi=spi, proto=IPPROTO_ESP)
   template = xfrm.XfrmUserTmpl(
       id=xfrmid,
@@ -111,6 +119,8 @@ def ApplySocketPolicy(sock, family, direction, spi, reqid):
       aalgos=ALL_ALGORITHMS,
       ealgos=ALL_ALGORITHMS,
       calgos=ALL_ALGORITHMS)
+
+  # Set the policy and template on our socket.
   opt_data = policy.Pack() + template.Pack()
   if family == AF_INET:
     sock.setsockopt(IPPROTO_IP, xfrm.IP_XFRM_POLICY, opt_data)
@@ -234,35 +244,9 @@ class XfrmTest(multinetwork_base.MultiNetworkBaseTest):
     s.connect((TEST_ADDR1, 53))
     saddr, sport = s.getsockname()[:2]
     daddr, dport = s.getpeername()[:2]
+    reqid = 0
 
-    # Create a selector that matches all UDP packets. It's not actually used to
-    # select traffic, that will be done by the socket policy, which selects the
-    # SA entry (i.e., xfrm state) via the SPI and reqid.
-    sel = xfrm.XfrmSelector((XFRM_ADDR_ANY, XFRM_ADDR_ANY, 0, 0, 0, 0,
-                             AF_INET6, 0, 0, IPPROTO_UDP, 0, 0))
-
-    # Create a user policy that specifies that all outbound packets matching the
-    # (essentially no-op) selector should be encrypted.
-    info = xfrm.XfrmUserpolicyInfo((sel,
-                                    xfrm.NO_LIFETIME_CFG, xfrm.NO_LIFETIME_CUR,
-                                    100, 0,
-                                    xfrm.XFRM_POLICY_OUT,
-                                    xfrm.XFRM_POLICY_ALLOW,
-                                    xfrm.XFRM_POLICY_LOCALOK,
-                                    xfrm.XFRM_SHARE_UNIQUE))
-
-    # Create a template that specifies the SPI and the protocol.
-    xfrmid = xfrm.XfrmId((XFRM_ADDR_ANY, htonl(TEST_SPI), IPPROTO_ESP))
-    tmpl = xfrm.XfrmUserTmpl((xfrmid, AF_INET6, XFRM_ADDR_ANY, 0,
-                              xfrm.XFRM_MODE_TRANSPORT, xfrm.XFRM_SHARE_UNIQUE,
-                              0,                # require
-                              ALL_ALGORITHMS,   # auth algos
-                              ALL_ALGORITHMS,   # encryption algos
-                              ALL_ALGORITHMS))  # compression algos
-
-    # Set the policy and template on our socket.
-    data = info.Pack() + tmpl.Pack()
-    s.setsockopt(IPPROTO_IPV6, xfrm.IPV6_XFRM_POLICY, data)
+    ApplySocketPolicy(s, AF_INET6, xfrm.XFRM_POLICY_OUT, htonl(TEST_SPI), reqid)
 
     # Invalidate destination cache entries, so that future sends on the socket
     # use the socket policy we've just applied instead of being sent in the
@@ -283,7 +267,6 @@ class XfrmTest(multinetwork_base.MultiNetworkBaseTest):
     # SPI must match the one in our template, and the destination address must
     # match the packet's destination address (in tunnel mode, it has to match
     # the tunnel destination).
-    reqid = 0
     self.xfrm.AddMinimalSaInfo("::", TEST_ADDR1, htonl(TEST_SPI), IPPROTO_ESP,
                                xfrm.XFRM_MODE_TRANSPORT, reqid,
                                ALGO_CBC_AES_256, ENCRYPTION_KEY,
@@ -327,17 +310,12 @@ class XfrmTest(multinetwork_base.MultiNetworkBaseTest):
     encap_socket.bind((myaddr, 0))
     encap_port = encap_socket.getsockname()[1]
     encap_socket.setsockopt(IPPROTO_UDP, xfrm.UDP_ENCAP,
-                               xfrm.UDP_ENCAP_ESPINUDP)
+                            xfrm.UDP_ENCAP_ESPINUDP)
 
     # Open a socket to send traffic.
     s = socket(AF_INET, SOCK_DGRAM, 0)
     self.SelectInterface(s, netid, "mark")
     s.connect((remoteaddr, 53))
-
-    # Create a UDP encap policy and template inbound and outbound and apply
-    # them to s.
-    sel = xfrm.XfrmSelector((XFRM_ADDR_ANY, XFRM_ADDR_ANY, 0, 0, 0, 0,
-                             AF_INET, 0, 0, IPPROTO_UDP, 0, 0))
 
     # Use the same SPI both inbound and outbound because this lets us receive
     # encrypted packets by simply replaying the packets the kernel sends.
@@ -346,25 +324,8 @@ class XfrmTest(multinetwork_base.MultiNetworkBaseTest):
     out_reqid = 456
     out_spi = htonl(TEST_SPI)
 
-    # Start with the outbound policy.
-    # TODO: what happens without XFRM_SHARE_UNIQUE?
-    info = xfrm.XfrmUserpolicyInfo((sel,
-                                    xfrm.NO_LIFETIME_CFG, xfrm.NO_LIFETIME_CUR,
-                                    100, 0,
-                                    xfrm.XFRM_POLICY_OUT,
-                                    xfrm.XFRM_POLICY_ALLOW,
-                                    xfrm.XFRM_POLICY_LOCALOK,
-                                    xfrm.XFRM_SHARE_UNIQUE))
-    xfrmid = xfrm.XfrmId((XFRM_ADDR_ANY, out_spi, IPPROTO_ESP))
-    usertmpl = xfrm.XfrmUserTmpl((xfrmid, AF_INET, XFRM_ADDR_ANY, out_reqid,
-                              xfrm.XFRM_MODE_TRANSPORT, xfrm.XFRM_SHARE_UNIQUE,
-                              0,                # require
-                              ALL_ALGORITHMS,   # auth algos
-                              ALL_ALGORITHMS,   # encryption algos
-                              ALL_ALGORITHMS))  # compression algos
-
-    data = info.Pack() + usertmpl.Pack()
-    s.setsockopt(IPPROTO_IP, xfrm.IP_XFRM_POLICY, data)
+    # Apply an outbound socket policy to s.
+    ApplySocketPolicy(s, AF_INET, xfrm.XFRM_POLICY_OUT, out_spi, out_reqid)
 
     # Uncomment for debugging.
     # subprocess.call("ip xfrm policy".split())
@@ -412,16 +373,12 @@ class XfrmTest(multinetwork_base.MultiNetworkBaseTest):
     net_test.SetSocketTimeout(twisted_socket, 100)
     twisted_socket.bind(("0.0.0.0", 53))
 
-    # TODO: why does this work even without the per-socket policy applied? The
-    # received packet obviously matches an SA, but don't inbound packets need to
-    # match a policy as well?
-    info.dir = xfrm.XFRM_POLICY_IN
-    xfrmid.spi = in_spi
-    usertmpl.reqid = in_reqid
-    data = info.Pack() + usertmpl.Pack()
-    twisted_socket.setsockopt(IPPROTO_IP, xfrm.IP_XFRM_POLICY, data)
+    # TODO: why does this work without a per-socket policy applied?
+    # The received  packet obviously matches an SA, but don't inbound packets
+    # need to match a policy as well?
 
-    # Save the payload of the packet so we can replay it back to ourselves.
+    # Save the payload of the packet so we can replay it back to ourselves, and
+    # replace the SPI with our inbound SPI.
     payload = str(packet.payload)[8:]
     spi_seq = struct.pack("!II", ntohl(in_spi), 1)
     payload = spi_seq + payload[len(spi_seq):]
@@ -444,7 +401,7 @@ class XfrmTest(multinetwork_base.MultiNetworkBaseTest):
     self.assertEquals("foo", data)
     self.assertEquals((remoteaddr, srcport), src)
 
-    # Check that unencrypted packets are not received.
+    # Check that unencrypted packets on twisted_socket are not received.
     unencrypted = (scapy.IP(src=remoteaddr, dst=myaddr) /
                    scapy.UDP(sport=srcport, dport=53) / "foo")
     self.assertRaisesErrno(EAGAIN, twisted_socket.recv, 4096)
