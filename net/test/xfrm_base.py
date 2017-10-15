@@ -14,10 +14,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import random
 import socket
-import struct
 
+import cstruct
 import multinetwork_base
 import xfrm
 
@@ -32,7 +31,7 @@ _ALGO_HMAC_SHA1 = xfrm.XfrmAlgoAuth(("hmac(sha1)", 128, 96))
 MARK_MASK_ALL = 0xffffffff
 ALL_ALGORITHMS = 0xffffffff
 
-XFRM_ADDR_ANY = 16 * "\x00"
+XFRM_ADDR_ANY = xfrm.PaddedAddress("::")
 
 
 def ApplySocketPolicy(sock, family, direction, spi, reqid):
@@ -119,12 +118,12 @@ class XfrmBaseTest(multinetwork_base.MultiNetworkBaseTest):
     packets = self.ReadAllPacketsOn(netid)
     self.assertEquals(1, len(packets))
     packet = packets[0]
-    payload = str(packet.payload)[8:]
     if length is not None:
       self.assertEquals(length, len(packet.payload), "Incorrect packet length.")
     if dst_addr is not None:
       self.assertEquals(dst_addr, packet.dst, "Mismatched destination address.")
     if src_addr is not None:
       self.assertEquals(src_addr, packet.src, "Mismatched source address.")
-    esp_hdr = xfrm.EspHdr(str(packet.payload))
+    # extract the ESP header
+    esp_hdr, _ = cstruct.Read(str(packet.payload), xfrm.EspHdr)
     self.assertEquals(xfrm.EspHdr((spi, seq)), esp_hdr)
