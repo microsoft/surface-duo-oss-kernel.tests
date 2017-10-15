@@ -23,12 +23,12 @@ import subprocess
 import threading
 import unittest
 
+import cstruct
 import multinetwork_base
 import net_test
 import xfrm
 import xfrm_base
 
-LOOPBACK = 15 * "\x00" + "\x01"
 ENCRYPTED_PAYLOAD = ("b1c74998efd6326faebe2061f00f2c750e90e76001664a80c287b150"
                      "59e74bf949769cc6af71e51b539e7de3a2a14cb05a231b969e035174"
                      "d98c5aa0cef1937db98889ec0d08fa408fecf616")
@@ -45,12 +45,13 @@ class XfrmFunctionalTest(xfrm_base.XfrmBaseTest):
 
   def assertIsUdpEncapEsp(self, packet, spi, seq, length):
     self.assertEquals(IPPROTO_UDP, packet.proto)
-    self.assertEquals(4500, packet.dport)
-    # Skip UDP header. TODO: isn't there a better way to do this?
-    payload = str(packet.payload)[8:]
-    self.assertEquals(length, len(payload))
-    spi_seq = struct.pack("!II", ntohl(spi), seq)
-    self.assertEquals(spi_seq, str(payload)[:len(spi_seq)])
+    udp_hdr = packet[scapy.UDP]
+    self.assertEquals(4500, udp_hdr.dport)
+    self.assertEquals(length, len(udp_hdr.load))
+    esp_hdr, _ = cstruct.Read(str(udp_hdr.load), xfrm.EspHdr)
+    # FIXME: this file currently swaps SPI byte order manually, so SPI needs to
+    # be double-swapped here.
+    self.assertEquals(xfrm.EspHdr((ntohl(spi), seq)), esp_hdr)
 
   def testAddSa(self):
     self.xfrm.AddMinimalSaInfo("::", TEST_ADDR1, htonl(TEST_SPI), IPPROTO_ESP,
