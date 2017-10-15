@@ -456,6 +456,9 @@ class MultiNetworkBaseTest(net_test.NetworkTest):
 
     return s
 
+  def RandomNetid(self):
+    return random.choice(self.NETIDS)
+
   def SendOnNetid(self, version, s, dstaddr, dstport, netid, payload, cmsgs):
     if netid is not None:
       pktinfo = MakePktInfo(version, None, self.ifindices[netid])
