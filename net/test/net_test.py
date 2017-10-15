@@ -89,6 +89,14 @@ KERN_INFO = 6
 LINUX_VERSION = csocket.LinuxVersion()
 
 
+def GetWildcardAddress(version):
+  return {4: "0.0.0.0", 6: "::"}[version]
+
+
+def GetAddressFamily(version):
+  return {4: AF_INET, 6: AF_INET6}[version]
+
+
 def SetSocketTimeout(sock, ms):
   s = ms / 1000
   us = (ms % 1000) * 1000
