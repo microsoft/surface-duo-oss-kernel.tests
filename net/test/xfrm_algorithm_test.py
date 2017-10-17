@@ -142,7 +142,8 @@ class XfrmAlgorithmTest(xfrm_base.XfrmBaseTest):
         auth_trunc_key=akey_right,
         encap=None,
         mark=None,
-        mark_mask=None)
+        mark_mask=None,
+        output_mark=None)
     # Right inbound SA
     self.xfrm.AddMinimalSaInfo(
         src=remote_addr,
@@ -157,7 +158,8 @@ class XfrmAlgorithmTest(xfrm_base.XfrmBaseTest):
         auth_trunc_key=akey_right,
         encap=None,
         mark=None,
-        mark_mask=None)
+        mark_mask=None,
+        output_mark=None)
     # Right outbound SA
     self.xfrm.AddMinimalSaInfo(
         src=local_addr,
@@ -172,7 +174,8 @@ class XfrmAlgorithmTest(xfrm_base.XfrmBaseTest):
         auth_trunc_key=akey_left,
         encap=None,
         mark=None,
-        mark_mask=None)
+        mark_mask=None,
+        output_mark=None)
     # Left inbound SA
     self.xfrm.AddMinimalSaInfo(
         src=remote_addr,
@@ -187,7 +190,8 @@ class XfrmAlgorithmTest(xfrm_base.XfrmBaseTest):
         auth_trunc_key=akey_left,
         encap=None,
         mark=None,
-        mark_mask=None)
+        mark_mask=None,
+        output_mark=None)
 
     # Make two sockets.
     sock_left = socket(family, params["proto"], 0)
@@ -201,16 +205,16 @@ class XfrmAlgorithmTest(xfrm_base.XfrmBaseTest):
 
     # Apply the left outbound socket policy.
     xfrm_base.ApplySocketPolicy(sock_left, family, xfrm.XFRM_POLICY_OUT,
-                                spi_right, req_ids[0])
+                                spi_right, req_ids[0], None)
     # Apply right inbound socket policy.
     xfrm_base.ApplySocketPolicy(sock_right, family, xfrm.XFRM_POLICY_IN,
-                                spi_right, req_ids[1])
+                                spi_right, req_ids[1], None)
     # Apply right outbound socket policy.
     xfrm_base.ApplySocketPolicy(sock_right, family, xfrm.XFRM_POLICY_OUT,
-                                spi_left, req_ids[2])
+                                spi_left, req_ids[2], None)
     # Apply left inbound socket policy.
     xfrm_base.ApplySocketPolicy(sock_left, family, xfrm.XFRM_POLICY_IN,
-                                spi_left, req_ids[3])
+                                spi_left, req_ids[3], None)
 
     server_ready = threading.Event()
     server_error = None  # Save exceptions thrown by the server.
