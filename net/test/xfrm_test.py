@@ -36,6 +36,10 @@ ENCRYPTED_PAYLOAD = ("b1c74998efd6326faebe2061f00f2c750e90e76001664a80c287b150"
 TEST_ADDR1 = "2001:4860:4860::8888"
 TEST_ADDR2 = "2001:4860:4860::8844"
 
+# IP addresses to use for tunnel endpoints. For generality, these should be
+# different from the addresses we send packets to.
+TUNNEL_ENDPOINTS = {4: "8.8.4.4", 6: TEST_ADDR2}
+
 TEST_SPI = 0x1234
 
 ALGO_CBC_AES_256 = xfrm.XfrmAlgo(("cbc(aes)", 256))
@@ -60,7 +64,7 @@ class XfrmFunctionalTest(xfrm_base.XfrmBaseTest):
                                xfrm_base._ENCRYPTION_KEY_256,
                                xfrm_base._ALGO_HMAC_SHA1,
                                xfrm_base._AUTHENTICATION_KEY_128,
-                               None, None, None)
+                               None, None, None, None)
     expected = (
         "src :: dst 2001:4860:4860::8888\n"
         "\tproto esp spi 0x00001234 reqid 3320 mode transport\n"
@@ -85,14 +89,14 @@ class XfrmFunctionalTest(xfrm_base.XfrmBaseTest):
                                xfrm_base._ENCRYPTION_KEY_256,
                                xfrm_base._ALGO_HMAC_SHA1,
                                xfrm_base._AUTHENTICATION_KEY_128,
-                               None, None, None)
+                               None, None, None, None)
     self.xfrm.AddMinimalSaInfo("0.0.0.0", "192.0.2.1", htonl(TEST_SPI),
                                IPPROTO_ESP, xfrm.XFRM_MODE_TRANSPORT, 4321,
                                xfrm_base._ALGO_CBC_AES_256,
                                xfrm_base._ENCRYPTION_KEY_256,
                                xfrm_base._ALGO_HMAC_SHA1,
                                xfrm_base._AUTHENTICATION_KEY_128,
-                               None, None, None)
+                               None, None, None, None)
     self.assertEquals(2, len(self.xfrm.DumpSaInfo()))
     self.xfrm.FlushSaInfo()
     self.assertEquals(0, len(self.xfrm.DumpSaInfo()))
@@ -108,7 +112,7 @@ class XfrmFunctionalTest(xfrm_base.XfrmBaseTest):
     reqid = 0
 
     xfrm_base.ApplySocketPolicy(s, AF_INET6, xfrm.XFRM_POLICY_OUT,
-                                htonl(TEST_SPI), reqid)
+                                htonl(TEST_SPI), reqid, None)
 
     # Invalidate destination cache entries, so that future sends on the socket
     # use the socket policy we've just applied instead of being sent in the
@@ -135,9 +139,11 @@ class XfrmFunctionalTest(xfrm_base.XfrmBaseTest):
                                xfrm_base._ENCRYPTION_KEY_256,
                                xfrm_base._ALGO_HMAC_SHA1,
                                xfrm_base._AUTHENTICATION_KEY_128,
-                               None, None, None)
+                               None, None, None, None)
     s.sendto(net_test.UDP_PAYLOAD, (TEST_ADDR1, 53))
-    self._ExpectEspPacketOn(netid, TEST_SPI, 1, 84, None, None)
+    expected_length = xfrm_base.GetEspPacketLength(xfrm.XFRM_MODE_TRANSPORT, 6,
+                                                   None, net_test.UDP_PAYLOAD)
+    self._ExpectEspPacketOn(netid, TEST_SPI, 1, expected_length, None, None)
 
     # Sending to another destination doesn't work: again, no matching SA.
     self.assertRaisesErrno(
@@ -191,7 +197,7 @@ class XfrmFunctionalTest(xfrm_base.XfrmBaseTest):
 
     # Apply an outbound socket policy to s.
     xfrm_base.ApplySocketPolicy(s, AF_INET, xfrm.XFRM_POLICY_OUT,
-                                out_spi, out_reqid)
+                                out_spi, out_reqid, None)
 
     # Create inbound and outbound SAs that specify UDP encapsulation.
     encaptmpl = xfrm.XfrmEncapTmpl((xfrm.UDP_ENCAP_ESPINUDP, htons(encap_port),
@@ -202,7 +208,7 @@ class XfrmFunctionalTest(xfrm_base.XfrmBaseTest):
                                xfrm_base._ENCRYPTION_KEY_256,
                                xfrm_base._ALGO_HMAC_SHA1,
                                xfrm_base._AUTHENTICATION_KEY_128,
-                               encaptmpl, None, None)
+                               encaptmpl, None, None, None)
 
     # Add an encap template that's the mirror of the outbound one.
     encaptmpl.sport, encaptmpl.dport = encaptmpl.dport, encaptmpl.sport
@@ -212,7 +218,7 @@ class XfrmFunctionalTest(xfrm_base.XfrmBaseTest):
                                xfrm_base._ENCRYPTION_KEY_256,
                                xfrm_base._ALGO_HMAC_SHA1,
                                xfrm_base._AUTHENTICATION_KEY_128,
-                               encaptmpl, None, None)
+                               encaptmpl, None, None, None)
 
     # Uncomment for debugging.
     # subprocess.call("ip xfrm state".split())
@@ -308,6 +314,106 @@ class XfrmFunctionalTest(xfrm_base.XfrmBaseTest):
         spi = ntohl(new_sa.id.spi)
         self.assertNotIn(spi, spis)
         spis.add(spi)
+
+
+@unittest.skipUnless(net_test.LINUX_VERSION >= (4, 9, 0), "not yet backported")
+class XfrmOutputMarkTest(xfrm_base.XfrmBaseTest):
+
+  def _CheckTunnelModeOutputMark(self, version, tunsrc, mark, expected_netid):
+    """Tests sending UDP packets to tunnel mode SAs with output marks.
+
+    Opens a UDP socket and binds it to a random netid, then sets up tunnel mode
+    SAs with an output_mark of mark and sets a socket policy to use the SA.
+    Then checks that sending on those SAs sends a packet on expected_netid,
+    or, if expected_netid is zero, checks that sending returns ENETUNREACH.
+
+    Args:
+      version: 4 or 6.
+      tunsrc: A string, the source address of the tunnel.
+      mark: An integer, the output_mark to set in the SA.
+      expected_netid: An integer, the netid to expect the kernel to send the
+          packet on. If None, expect that sendto will fail with ENETUNREACH.
+    """
+    # Open a UDP socket and bind it to a random netid.
+    family = net_test.GetAddressFamily(version)
+    s = socket(family, SOCK_DGRAM, 0)
+    self.SelectInterface(s, self.RandomNetid(), "mark")
+
+    # For generality, pick a tunnel endpoint that's not the address we
+    # connect the socket to.
+    tundst = TUNNEL_ENDPOINTS[version]
+    tun_addrs = (tunsrc, tundst)
+
+    # Create a tunnel mode SA and use XFRM_OUTPUT_MARK to bind it to netid.
+    spi = htonl(TEST_SPI * mark)
+    reqid = 100 + spi
+    self.xfrm.AddMinimalSaInfo(tunsrc, tundst, spi,
+                               IPPROTO_ESP, xfrm.XFRM_MODE_TUNNEL, reqid,
+                               xfrm_base._ALGO_CBC_AES_256,
+                               xfrm_base._ENCRYPTION_KEY_256,
+                               xfrm_base._ALGO_HMAC_SHA1,
+                               xfrm_base._AUTHENTICATION_KEY_128,
+                               None, None, None, mark)
+
+
+    # Set a socket policy to use it.
+    xfrm_base.ApplySocketPolicy(s, family, xfrm.XFRM_POLICY_OUT, spi, reqid,
+                                tun_addrs)
+
+    # Send a packet and check that we see it on the wire.
+    remoteaddr = self.GetRemoteAddress(version)
+
+    packetlen = xfrm_base.GetEspPacketLength(xfrm.XFRM_MODE_TUNNEL, version,
+                                             IPPROTO_IP, net_test.UDP_PAYLOAD)
+
+    if expected_netid is not None:
+      s.sendto(net_test.UDP_PAYLOAD, (remoteaddr, 53))
+      self._ExpectEspPacketOn(expected_netid, htonl(spi), 1, packetlen, tunsrc,
+                              tundst)
+    else:
+      with self.assertRaisesErrno(ENETUNREACH):
+        s.sendto(net_test.UDP_PAYLOAD, (remoteaddr, 53))
+
+  def testTunnelModeOutputMarkIPv4(self):
+    for netid in self.NETIDS:
+      tunsrc = self.MyAddress(4, netid)
+      self._CheckTunnelModeOutputMark(4, tunsrc, netid, netid)
+
+  def testTunnelModeOutputMarkIPv6(self):
+    for netid in self.NETIDS:
+      tunsrc = self.MyAddress(6, netid)
+      self._CheckTunnelModeOutputMark(6, tunsrc, netid, netid)
+
+  def testTunnelModeOutputNoMarkIPv4(self):
+    tunsrc = self.MyAddress(4, self.RandomNetid())
+    self._CheckTunnelModeOutputMark(4, tunsrc, 0, None)
+
+  def testTunnelModeOutputNoMarkIPv6(self):
+    tunsrc = self.MyAddress(6, self.RandomNetid())
+    self._CheckTunnelModeOutputMark(6, tunsrc, 0, None)
+
+  def testTunnelModeOutputInvalidMarkIPv4(self):
+    tunsrc = self.MyAddress(4, self.RandomNetid())
+    self._CheckTunnelModeOutputMark(4, tunsrc, 9999, None)
+
+  def testTunnelModeOutputInvalidMarkIPv6(self):
+    tunsrc = self.MyAddress(6, self.RandomNetid())
+    self._CheckTunnelModeOutputMark(6, tunsrc, 9999, None)
+
+  def testTunnelModeOutputMarkAttributes(self):
+      mark = 1234567
+      self.xfrm.AddMinimalSaInfo(TEST_ADDR1, TUNNEL_ENDPOINTS[6], 0x1234,
+                                 IPPROTO_ESP, xfrm.XFRM_MODE_TUNNEL, 100,
+                                 xfrm_base._ALGO_CBC_AES_256,
+                                 xfrm_base._ENCRYPTION_KEY_256,
+                                 xfrm_base._ALGO_HMAC_SHA1,
+                                 xfrm_base._AUTHENTICATION_KEY_128,
+                                 None, None, None, mark)
+      dump = self.xfrm.DumpSaInfo()
+      self.assertEquals(1, len(dump))
+      sainfo, attributes = dump[0]
+      self.assertEquals(mark, attributes["XFRMA_OUTPUT_MARK"])
+
 
 if __name__ == "__main__":
   unittest.main()

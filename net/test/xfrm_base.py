@@ -14,10 +14,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import socket
+from socket import *  # pylint: disable=wildcard-import
 
 import cstruct
 import multinetwork_base
+import net_test
 import xfrm
 
 _ENCRYPTION_KEY_256 = ("308146eb3bd84b044573d60f5a5fd159"
@@ -34,7 +35,7 @@ ALL_ALGORITHMS = 0xffffffff
 XFRM_ADDR_ANY = xfrm.PaddedAddress("::")
 
 
-def ApplySocketPolicy(sock, family, direction, spi, reqid):
+def ApplySocketPolicy(sock, family, direction, spi, reqid, tun_addrs):
   """Create and apply socket policy objects.
 
   AH is not supported. This is ESP only.
@@ -45,8 +46,22 @@ def ApplySocketPolicy(sock, family, direction, spi, reqid):
     direction: XFRM_POLICY_IN or XFRM_POLICY_OUT
     spi: 32-bit SPI in network byte order
     reqid: 32-bit ID matched against SAs
+    tun_addrs: A tuple of (local, remote) addresses for tunnel mode, or None
+      to request a transport mode SA.
+
   Return: a tuple of XfrmUserpolicyInfo, XfrmUserTmpl
   """
+  # For transport mode, set template source and destination are empty.
+  # For tunnel mode, explicitly specify source and destination addresses.
+  if tun_addrs is None:
+    mode = xfrm.XFRM_MODE_TRANSPORT
+    saddr = XFRM_ADDR_ANY
+    daddr = XFRM_ADDR_ANY
+  else:
+    mode = xfrm.XFRM_MODE_TUNNEL
+    saddr = xfrm.PaddedAddress(tun_addrs[0])
+    daddr = xfrm.PaddedAddress(tun_addrs[1])
+
   # Create a selector that matches all packets of the specified address family.
   # It's not actually used to select traffic, that will be done by the socket
   # policy, which selects the SA entry (i.e., xfrm state) via the SPI and reqid.
@@ -65,13 +80,13 @@ def ApplySocketPolicy(sock, family, direction, spi, reqid):
       share=xfrm.XFRM_SHARE_UNIQUE)
 
   # Create a template that specifies the SPI and the protocol.
-  xfrmid = xfrm.XfrmId(daddr=XFRM_ADDR_ANY, spi=spi, proto=socket.IPPROTO_ESP)
+  xfrmid = xfrm.XfrmId(daddr=daddr, spi=spi, proto=IPPROTO_ESP)
   template = xfrm.XfrmUserTmpl(
       id=xfrmid,
       family=family,
-      saddr=XFRM_ADDR_ANY,
+      saddr=saddr,
       reqid=reqid,
-      mode=xfrm.XFRM_MODE_TRANSPORT,
+      mode=mode,
       share=xfrm.XFRM_SHARE_UNIQUE,
       optional=0,  #require
       aalgos=ALL_ALGORITHMS,
@@ -80,10 +95,54 @@ def ApplySocketPolicy(sock, family, direction, spi, reqid):
 
   # Set the policy and template on our socket.
   opt_data = policy.Pack() + template.Pack()
-  if family == socket.AF_INET:
-    sock.setsockopt(socket.IPPROTO_IP, xfrm.IP_XFRM_POLICY, opt_data)
+  if family == AF_INET:
+    sock.setsockopt(IPPROTO_IP, xfrm.IP_XFRM_POLICY, opt_data)
   else:
-    sock.setsockopt(socket.IPPROTO_IPV6, xfrm.IPV6_XFRM_POLICY, opt_data)
+    sock.setsockopt(IPPROTO_IPV6, xfrm.IPV6_XFRM_POLICY, opt_data)
+
+
+def GetEspPacketLength(mode, version, encap, payload):
+  """Calculates encrypted length of a UDP packet with the given payload.
+
+  Currently assumes ALGO_CBC_AES_256 and ALGO_HMAC_SHA1.
+
+  Args:
+    mode: XFRM_MODE_TRANSPORT or XFRM_MODE_TUNNEL.
+    version: IPPROTO_IP for IPv4, IPPROTO_IPV6 for IPv6. The inner header.
+    outer: The outer header. None for transport mode, IPPROTO_IP or IPPROTO_IPV6
+      (TODO: support IPPROTO_UDP for UDP encap) for tunnel mode.
+    payload: UDP payload bytes.
+
+  Return: the packet length.
+
+  Raises:
+    NotImplementedError: unsupported combination.
+  """
+  if len(payload) != len(net_test.UDP_PAYLOAD):
+    raise NotImplementedError("Only one payload length is supported.")
+
+  # TODO: make this non-trivial, either using a more general matrix, or by
+  # calculating sizes dynamically based on algorithm block sizes and padding.
+  LENGTHS = {
+      xfrm.XFRM_MODE_TUNNEL: {
+          IPPROTO_IP: {
+              4: 100,
+              6: 132,
+          },
+      },
+      xfrm.XFRM_MODE_TRANSPORT: {
+          None: {
+              6: 84,
+          },
+      },
+  }
+
+  try:
+    return LENGTHS[mode][encap][version]
+  except KeyError:
+    raise NotImplementedError(
+      "Unsupported combination mode=%s encap=%s version=%s" %
+      (mode, encap, version))
 
 
 class XfrmBaseTest(multinetwork_base.MultiNetworkBaseTest):
