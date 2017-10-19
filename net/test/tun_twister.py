@@ -129,17 +129,19 @@ class TunTwister(object):
     """Read, twist, and write one packet on the tun/tap."""
     # TODO: Handle EAGAIN "errors".
     bytes_in = os.read(self._fd, TunTwister._READ_BUF_SIZE)
-    packet = self._DecodePacket(bytes_in)
+    packet = self.DecodePacket(bytes_in)
     if self._validator:
       self._validator(packet)
-    packet = self._TwistPacket(packet)
+    packet = self.TwistPacket(packet)
     os.write(self._fd, packet.build())
 
-  def _DecodePacket(self, bytes_in):
+  @classmethod
+  def DecodePacket(cls, bytes_in):
     """Decode a byte array into a scapy object."""
-    return self._DecodeIpPacket(bytes_in)
+    return cls._DecodeIpPacket(bytes_in)
 
-  def _TwistPacket(self, packet):
+  @classmethod
+  def TwistPacket(cls, packet):
     """Swap the src and dst in the IP header."""
     ip_type = type(packet)
     if ip_type not in (scapy.IP, scapy.IPv6):
@@ -180,13 +182,15 @@ class TapTwister(TunTwister):
     """
     super(TapTwister, self).__init__(fd=fd, validator=validator)
 
-  def _DecodePacket(self, bytes_in):
+  @classmethod
+  def DecodePacket(cls, bytes_in):
     return scapy.Ether(bytes_in)
 
-  def _TwistPacket(self, packet):
+  @classmethod
+  def TwistPacket(cls, packet):
     """Swap the src and dst in the ethernet and IP headers."""
     packet.src, packet.dst = packet.dst, packet.src
     ip_layer = packet.payload
-    twisted_ip_layer = super(TapTwister, self)._TwistPacket(ip_layer)
+    twisted_ip_layer = super(TapTwister, cls).TwistPacket(ip_layer)
     packet.payload = twisted_ip_layer
     return packet
