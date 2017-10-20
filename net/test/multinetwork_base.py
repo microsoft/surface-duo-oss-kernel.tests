@@ -456,8 +456,18 @@ class MultiNetworkBaseTest(net_test.NetworkTest):
 
     return s
 
-  def RandomNetid(self):
-    return random.choice(self.NETIDS)
+  def RandomNetid(self, exclude=None):
+    """Return a random netid from the list of netids
+
+    Args:
+      exclude: a netid or list of netids that should not be chosen
+    """
+    if exclude is None:
+      exclude = []
+    elif isinstance(exclude, int):
+        exclude = [exclude]
+    diff = [netid for netid in self.NETIDS if netid not in exclude]
+    return random.choice(diff)
 
   def SendOnNetid(self, version, s, dstaddr, dstport, netid, payload, cmsgs):
     if netid is not None:
