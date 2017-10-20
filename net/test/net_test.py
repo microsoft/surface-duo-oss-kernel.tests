@@ -96,6 +96,8 @@ def GetWildcardAddress(version):
 def GetAddressFamily(version):
   return {4: AF_INET, 6: AF_INET6}[version]
 
+def AddressLengthBits(version):
+  return {4: 32, 6: 128}[version]
 
 def SetSocketTimeout(sock, ms):
   s = ms / 1000

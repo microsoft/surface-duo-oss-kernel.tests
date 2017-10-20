@@ -18,10 +18,8 @@
 from errno import *  # pylint: disable=wildcard-import
 import os
 import itertools
-import random
 from scapy import all as scapy
 from socket import *  # pylint: disable=wildcard-import
-import struct
 import subprocess
 import threading
 import unittest
@@ -116,7 +114,7 @@ class XfrmAlgorithmTest(xfrm_base.XfrmBaseTest):
     # We create a pair of sockets, "left" and "right", that will talk to each
     # other using transport mode ESP. Because of TapTwister, both sockets
     # perceive each other as owning "remote_addr".
-    netid = random.choice(self.NETIDS)
+    netid = self.RandomNetid()
     family = net_test.GetAddressFamily(params["version"])
     local_addr = self.MyAddress(params["version"], netid)
     remote_addr = self.GetRemoteAddress(params["version"])
