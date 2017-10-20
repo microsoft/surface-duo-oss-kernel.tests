@@ -141,16 +141,19 @@ class XfrmTunnelTest(xfrm_base.XfrmBaseTest):
 
   def _CheckTunnelOutput(self, inner_version, outer_version):
     """Test a bi-directional XFRM Tunnel with explicit selectors"""
-    netid = self.RandomNetid()
-    local_inner = net_test.GetWildcardAddress(inner_version)
+    underlying_netid = self.RandomNetid()
+    netid = self.RandomNetid(exclude=underlying_netid)
+    s = socket(net_test.GetAddressFamily(inner_version), SOCK_DGRAM, 0)
+    self.SelectInterface(s, netid, "mark")
+    local_inner = self.MyAddress(inner_version, netid)
     remote_inner = self._GetRemoteInnerAddress(inner_version)
-    local_outer = self.MyAddress(outer_version, netid)
+    local_outer = self.MyAddress(outer_version, underlying_netid)
     remote_outer = self._GetRemoteOuterAddress(outer_version)
     self._CreateXfrmTunnel(
         direction=xfrm.XFRM_POLICY_OUT,
         inner_family=net_test.GetAddressFamily(inner_version),
         src_addr=local_inner,
-        src_prefixlen=0,
+        src_prefixlen=net_test.AddressLengthBits(inner_version),
         dst_addr=remote_inner,
         dst_prefixlen=net_test.AddressLengthBits(inner_version),
         outer_family=net_test.GetAddressFamily(outer_version),
@@ -158,7 +161,7 @@ class XfrmTunnelTest(xfrm_base.XfrmBaseTest):
         tdst_addr=remote_outer,
         mark=None,
         spi=_TEST_OUT_SPI,
-        output_mark=netid)
+        output_mark=underlying_netid)
 
     self._CreateXfrmTunnel(
         direction=xfrm.XFRM_POLICY_IN,
@@ -173,11 +176,9 @@ class XfrmTunnelTest(xfrm_base.XfrmBaseTest):
         mark=None,
         spi=_TEST_IN_SPI)
 
-    s = socket(net_test.GetAddressFamily(inner_version), SOCK_DGRAM, 0)
-    self.SelectInterface(s, self.RandomNetid(exclude=netid), "mark")
     s.sendto(net_test.UDP_PAYLOAD, (remote_inner, 53))
-    self._ExpectEspPacketOn(netid, _TEST_OUT_SPI, 1, None, local_outer,
-                            remote_outer)
+    self._ExpectEspPacketOn(underlying_netid, _TEST_OUT_SPI, 1,
+                            None, local_outer, remote_outer)
 
   @unittest.skipUnless(net_test.LINUX_VERSION >= (4, 9, 0), "not yet backported")
   def testIpv4InIpv4TunnelOutput(self):
