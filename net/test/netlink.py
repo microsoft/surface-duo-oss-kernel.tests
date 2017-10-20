@@ -25,6 +25,10 @@ import sys
 
 import cstruct
 
+### Base netlink constants. See include/uapi/linux/netlink.h.
+NETLINK_ROUTE = 0
+NETLINK_SOCK_DIAG = 4
+NETLINK_XFRM = 6
 
 # Request constants.
 NLM_F_REQUEST = 1
@@ -71,6 +75,13 @@ class NetlinkSocket(object):
     padding = "\x00" * (PaddedLength(datalen) - datalen)
     nla_len = datalen + len(NLAttr)
     return NLAttr((nla_len, nla_type)).Pack() + data + padding
+
+  def _NlAttrIPAddress(self, nla_type, family, address):
+    return self._NlAttr(nla_type, socket.inet_pton(family, address))
+
+  def _NlAttrStr(self, nla_type, value):
+    value = value + "\x00"
+    return self._NlAttr(nla_type, value.encode("UTF-8"))
 
   def _NlAttrU32(self, nla_type, value):
     return self._NlAttr(nla_type, struct.pack("=I", value))
@@ -130,10 +141,10 @@ class NetlinkSocket(object):
 
     return attributes
 
-  def __init__(self):
+  def __init__(self, family):
     # Global sequence number.
     self.seq = 0
-    self.sock = socket.socket(socket.AF_NETLINK, socket.SOCK_RAW, self.FAMILY)
+    self.sock = socket.socket(socket.AF_NETLINK, socket.SOCK_RAW, family)
     self.sock.connect((0, 0))  # The kernel.
     self.pid = self.sock.getsockname()[1]
 
