@@ -25,8 +25,6 @@ import struct
 import cstruct
 import netlink
 
-# Base netlink constants. See include/uapi/linux/netlink.h.
-NETLINK_XFRM = 6
 
 # Netlink constants. See include/uapi/linux/xfrm.h.
 # Message types.
@@ -176,6 +174,9 @@ XfrmUserpolicyInfo = cstruct.Struct(
     "sel lft curlft priority index dir action flags share",
     [XfrmSelector, XfrmLifetimeCfg, XfrmLifetimeCur])
 
+XfrmUserpolicyId = cstruct.Struct(
+        "XfrmUserpolicyId", "=SIB", "sel index dir", [XfrmSelector])
+
 XfrmUsersaFlush = cstruct.Struct("XfrmUsersaFlush", "=B", "proto")
 
 XfrmMark = cstruct.Struct("XfrmMark", "=II", "mark mask")
@@ -221,11 +222,10 @@ def PaddedAddress(addr):
 class Xfrm(netlink.NetlinkSocket):
   """Netlink interface to xfrm."""
 
-  FAMILY = NETLINK_XFRM
   DEBUG = False
 
   def __init__(self):
-    super(Xfrm, self).__init__()
+    super(Xfrm, self).__init__(netlink.NETLINK_XFRM)
 
   def _GetConstantName(self, value, prefix):
     return super(Xfrm, self)._GetConstantName(__name__, value, prefix)
@@ -285,6 +285,18 @@ class Xfrm(netlink.NetlinkSocket):
     if mark:
       nlattrs.append((XFRMA_MARK, mark))
     self.SendXfrmNlRequest(XFRM_MSG_NEWPOLICY, policy, nlattrs)
+
+  def DeletePolicyInfo(self, selector, direction):
+    """Delete a policy from the Security Policy Database
+
+    Args:
+      saddr: source address of the selector
+      daddr: destination address of the selector
+      family: the address family of the selector
+      direction: policy direction
+    """
+    self.SendXfrmNlRequest(XFRM_MSG_DELPOLICY,
+                           XfrmUserpolicyId(sel=selector, dir=direction))
 
   # TODO: this function really needs to be in netlink.py
   def SendXfrmNlRequest(self, msg_type, req, nlattrs=None,
