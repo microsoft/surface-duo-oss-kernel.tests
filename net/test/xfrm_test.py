@@ -316,7 +316,6 @@ class XfrmFunctionalTest(xfrm_base.XfrmBaseTest):
         spis.add(spi)
 
 
-@unittest.skipUnless(net_test.LINUX_VERSION >= (3, 18, 0), "not yet backported")
 class XfrmOutputMarkTest(xfrm_base.XfrmBaseTest):
 
   def _CheckTunnelModeOutputMark(self, version, tunsrc, mark, expected_netid):
