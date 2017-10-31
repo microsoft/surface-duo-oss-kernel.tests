@@ -69,6 +69,7 @@ RT_TABLE_UNSPEC = 0
 # Routing attributes.
 RTA_DST = 1
 RTA_SRC = 2
+RTA_IIF = 3
 RTA_OIF = 4
 RTA_GATEWAY = 5
 RTA_PRIORITY = 6
@@ -462,7 +463,7 @@ class IPRoute(netlink.NetlinkSocket):
     return self._GetMsg(IfAddrMsg)
 
   def _Route(self, version, proto, command, table, dest, prefixlen, nexthop,
-             dev, mark, uid, route_type=RTN_UNICAST, priority=None):
+             dev, mark, uid, route_type=RTN_UNICAST, priority=None, iif=None):
     """Adds, deletes, or queries a route."""
     family = self._AddressFamily(version)
     scope = RT_SCOPE_UNIVERSE if nexthop else RT_SCOPE_LINK
@@ -486,6 +487,8 @@ class IPRoute(netlink.NetlinkSocket):
       rtmsg += self._NlAttrU32(RTA_UID, uid)
     if priority is not None:
       rtmsg += self._NlAttrU32(RTA_PRIORITY, priority)
+    if iif is not None:
+      rtmsg += self._NlAttrU32(RTA_IIF, iif)
     self._SendNlRequest(command, rtmsg)
 
   def AddRoute(self, version, table, dest, prefixlen, nexthop, dev):
@@ -496,11 +499,11 @@ class IPRoute(netlink.NetlinkSocket):
     self._Route(version, RTPROT_STATIC, RTM_DELROUTE, table, dest, prefixlen,
                 nexthop, dev, None, None)
 
-  def GetRoutes(self, dest, oif, mark, uid):
+  def GetRoutes(self, dest, oif, mark, uid, iif=None):
     version = 6 if ":" in dest else 4
     prefixlen = {4: 32, 6: 128}[version]
     self._Route(version, RTPROT_STATIC, RTM_GETROUTE, 0, dest, prefixlen, None,
-                oif, mark, uid)
+                oif, mark, uid, iif=iif)
     data = self._Recv()
     # The response will either be an error or a list of routes.
     if netlink.NLMsgHdr(data).type == netlink.NLMSG_ERROR:
@@ -509,8 +512,8 @@ class IPRoute(netlink.NetlinkSocket):
     return routes
 
   def DumpRoutes(self, version, ifindex):
-    ndmsg = NdMsg((self._AddressFamily(version), 0, 0, 0, 0))
-    return [(m, r) for (m, r) in self._Dump(RTM_GETROUTE, ndmsg, NdMsg, "")
+    rtmsg = RTMsg(family=self._AddressFamily(version))
+    return [(m, r) for (m, r) in self._Dump(RTM_GETROUTE, rtmsg, RTMsg, "")
             if r['RTA_TABLE'] == ifindex]
 
   def _Neighbour(self, version, is_add, addr, lladdr, dev, state, flags=0):
