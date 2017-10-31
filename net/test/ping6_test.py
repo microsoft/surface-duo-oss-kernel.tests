@@ -468,7 +468,7 @@ class Ping6Test(multinetwork_base.MultiNetworkBaseTest):
     s5.bind(("0.0.0.0", 167))
     s4.sendto(net_test.IPV4_PING, (net_test.IPV4_ADDR, 44))
     self.assertValidPingResponse(s5, net_test.IPV4_PING)
-    net_test.SetSocketTimeout(s4, 100)
+    csocket.SetSocketTimeout(s4, 100)
     self.assertRaisesErrno(errno.EAGAIN, s4.recv, 32768)
 
     # If SO_REUSEADDR is turned off, then we get EADDRINUSE.
