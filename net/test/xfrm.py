@@ -266,6 +266,8 @@ class Xfrm(netlink.NetlinkSocket):
       data = cstruct.Read(nla_data, XfrmMark)[0]
     elif name == "XFRMA_OUTPUT_MARK":
       data = struct.unpack("=I", nla_data)[0]
+    elif name == "XFRMA_TMPL":
+      data = cstruct.Read(nla_data, XfrmUserTmpl)[0]
     else:
       data = nla_data
 
@@ -386,6 +388,9 @@ class Xfrm(netlink.NetlinkSocket):
   def DumpSaInfo(self):
     return self._Dump(XFRM_MSG_GETSA, None, XfrmUsersaInfo, "")
 
+  def DumpPolicyInfo(self):
+    return self._Dump(XFRM_MSG_GETPOLICY, None, XfrmUserpolicyInfo, "")
+
   def FindSaInfo(self, spi):
     sainfo = [sa for sa, attrs in self.DumpSaInfo() if sa.id.spi == spi]
     return sainfo[0] if sainfo else None
@@ -404,3 +409,4 @@ class Xfrm(netlink.NetlinkSocket):
 if __name__ == "__main__":
   x = Xfrm()
   print x.DumpSaInfo()
+  print x.DumpPolicyInfo()
