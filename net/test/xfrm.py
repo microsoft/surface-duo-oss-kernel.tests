@@ -206,6 +206,9 @@ IPSEC_PROTO_ANY	= 255
 # TODO: move this somewhere more appropriate when possible
 EspHdr = cstruct.Struct("EspHdr", "!II", "spi seqnum")
 
+# Local constants.
+_DEFAULT_REPLAY_WINDOW = 4
+
 
 def RawAddress(addr):
   """Converts an IP address string to binary format."""
@@ -237,6 +240,11 @@ def SrcDstSelector(src, dst):
   family = net_test.GetAddressFamily(srcver)
   return XfrmSelector(saddr=PaddedAddress(src), daddr=PaddedAddress(dst),
       prefixlen_s=prefixlen, prefixlen_d=prefixlen, family=family)
+
+
+def ExactMatchMark(mark):
+  """An XfrmMark that matches only the specified mark."""
+  return XfrmMark((mark, 0xffffffff))
 
 
 class Xfrm(netlink.NetlinkSocket):
@@ -342,39 +350,62 @@ class Xfrm(netlink.NetlinkSocket):
       msg += self._NlAttr(attr_type, attr_msg.Pack())
     return self._SendNlRequest(msg_type, msg, flags)
 
-  def AddSaInfo(self, selector, xfrm_id, saddr, lifetimes, reqid, family, mode,
-                replay_window, flags, nlattrs):
-    # The kernel ignores these on input.
-    cur = "\x00" * len(XfrmLifetimeCur)
-    stats = "\x00" * len(XfrmStats)
-    seq = 0
-    sa = XfrmUsersaInfo((selector, xfrm_id, saddr, lifetimes, cur, stats, seq,
-                         reqid, family, mode, replay_window, flags))
-    msg = sa.Pack() + nlattrs
-    flags = netlink.NLM_F_REQUEST | netlink.NLM_F_ACK
-    self._SendNlRequest(XFRM_MSG_NEWSA, msg, flags)
+  def AddSaInfo(self, src, dst, spi, mode, reqid, selector, encryption,
+                auth_trunc, encap, mark, output_mark):
+    """Adds an IPsec security association.
 
-  def AddMinimalSaInfo(self, src, dst, spi, proto, mode, reqid,
-                       encryption, encryption_key,
-                       auth_trunc, auth_trunc_key, encap,
-                       mark, mark_mask, output_mark, selector=None):
-    if selector is None:
-      selector = EmptySelector(AF_UNSPEC)
+    Args:
+      src: A string, the source IP address. May be a wildcard in transport mode.
+      dst: A string, the destination IP address. Forms part of the XFRM ID, and
+        must match the destination address of the packets sent by this SA.
+      spi: An integer, the SPI.
+      mode: An IPsec mode such as XFRM_MODE_TRANSPORT.
+      reqid: A request ID. Can be used in policies to match the SA.
+      selector: An XfrmSelector (e.g., as returned by EmptySelector or
+        SrcDstSelector). Decides which packets will be transformed. If None,
+        matches all packets.
+      encryption: A tuple of an XfrmAlgo and raw key bytes, or None.
+      auth_trunc: A tuple of an XfrmAlgoAuth and raw key bytes, or None.
+      encap: An XfrmEncapTmpl structure, or None.
+      mark: A mark match specifier, such as returned by ExactMatchMark(), or
+        None for an SA that matches all possible marks.
+      output_mark: An integer, the output mark. 0 means unset.
+    """
+    proto = IPPROTO_ESP
     xfrm_id = XfrmId((PaddedAddress(dst), spi, proto))
     family = AF_INET6 if ":" in dst else AF_INET
-    nlattrs = self._NlAttr(XFRMA_ALG_CRYPT,
-                           encryption.Pack() + encryption_key)
-    nlattrs += self._NlAttr(XFRMA_ALG_AUTH_TRUNC,
-                            auth_trunc.Pack() + auth_trunc_key)
+
+    if selector is None:
+      selector = EmptySelector(AF_UNSPEC)
+
+    nlattrs = ""
+    if encryption is not None:
+      enc, key = encryption
+      nlattrs += self._NlAttr(XFRMA_ALG_CRYPT, enc.Pack() + key)
+
+    if auth_trunc is not None:
+      auth, key = auth_trunc
+      nlattrs += self._NlAttr(XFRMA_ALG_AUTH_TRUNC, auth.Pack() + key)
+
     # if a user provides either mark or mask, then we send the mark attribute
-    if mark or mark_mask:
-      nlattrs += self._NlAttr(XFRMA_MARK, XfrmMark((mark, mark_mask)).Pack())
+    if mark is not None:
+      nlattrs += self._NlAttr(XFRMA_MARK, mark.Pack())
     if encap is not None:
       nlattrs += self._NlAttr(XFRMA_ENCAP, encap.Pack())
     if output_mark is not None:
       nlattrs += self._NlAttrU32(XFRMA_OUTPUT_MARK, output_mark)
-    self.AddSaInfo(selector, xfrm_id, PaddedAddress(src), NO_LIFETIME_CFG,
-                   reqid, family, mode, 4, 0, nlattrs)
+
+    # The kernel ignores these on input, so make them empty.
+    cur = XfrmLifetimeCur()
+    stats = XfrmStats()
+    seq = 0
+    replay = _DEFAULT_REPLAY_WINDOW
+    flags = 0
+    sa = XfrmUsersaInfo((selector, xfrm_id, PaddedAddress(src), NO_LIFETIME_CFG,
+                         cur, stats, seq, reqid, family, mode, replay, flags))
+    msg = sa.Pack() + nlattrs
+    flags = netlink.NLM_F_REQUEST | netlink.NLM_F_ACK
+    self._SendNlRequest(XFRM_MSG_NEWSA, msg, flags)
 
   def DeleteSaInfo(self, daddr, spi, proto):
     # TODO: deletes take a mark as well.
