@@ -26,6 +26,7 @@ import os
 import socket
 import struct
 
+import csocket
 import cstruct
 import netlink
 
@@ -69,6 +70,7 @@ RT_TABLE_UNSPEC = 0
 # Routing attributes.
 RTA_DST = 1
 RTA_SRC = 2
+RTA_IIF = 3
 RTA_OIF = 4
 RTA_GATEWAY = 5
 RTA_PRIORITY = 6
@@ -79,6 +81,9 @@ RTA_TABLE = 15
 RTA_MARK = 16
 RTA_PREF = 20
 RTA_UID = 25
+
+# Netlink groups.
+RTMGRP_IPV6_IFADDR = 0x100
 
 # Route metric attributes.
 RTAX_MTU = 2
@@ -442,10 +447,59 @@ class IPRoute(netlink.NetlinkSocket):
       ifaddrmsg += self._NlAttrIPAddress(IFA_LOCAL, family, addr)
     self._SendNlRequest(command, ifaddrmsg)
 
+  def _WaitForAddress(self, sock, address, ifindex):
+    # IPv6 addresses aren't immediately usable when the netlink ACK comes back.
+    # Even if DAD is disabled via IFA_F_NODAD or on the interface, when the ACK
+    # arrives the input route has not yet been added to the local table. The
+    # route is added in addrconf_dad_begin with a delayed timer of 0, but if
+    # the system is under load, we could win the race against that timer and
+    # cause the tests to be flaky. So, wait for RTM_NEWADDR to arrive
+    csocket.SetSocketTimeout(sock, 100)
+    while True:
+      try:
+        data = sock.recv(4096)
+      except EnvironmentError as e:
+        raise AssertionError("Address %s did not appear on ifindex %d: %s" %
+                             (address, ifindex, e.strerror))
+      msg, attrs = self._ParseNLMsg(data, IfAddrMsg)[0]
+      if msg.index == ifindex and attrs["IFA_ADDRESS"] == address:
+        return
+
   def AddAddress(self, address, prefixlen, ifindex):
-    self._Address(6 if ":" in address else 4,
-                  RTM_NEWADDR, address, prefixlen,
-                  IFA_F_PERMANENT, RT_SCOPE_UNIVERSE, ifindex)
+    """Adds a statically-configured IP address to an interface.
+
+    The address is created with flags IFA_F_PERMANENT, and, if IPv6,
+    IFA_F_NODAD. The requested scope is RT_SCOPE_UNIVERSE, but at least for
+    IPv6, is instead determined by the kernel.
+
+    In order to avoid races (see comments in _WaitForAddress above), when
+    configuring IPv6 addresses, the method blocks until it receives an
+    RTM_NEWADDR from the kernel confirming that the address has been added.
+    If the address does not appear within 100ms, AssertionError is thrown.
+
+    Args:
+      address: A string, the IP address to configure.
+      prefixlen: The prefix length passed to the kernel. If not /32 for IPv4 or
+        /128 for IPv6, the kernel creates an implicit directly-connected route.
+      ifindex: The interface index to add the address to.
+
+    Raises:
+      AssertionError: An IPv6 address was requested, and it did not appear
+        within the timeout.
+    """
+    version = 6 if ":" in address else 4
+
+    flags = IFA_F_PERMANENT
+    if version == 6:
+      flags |= IFA_F_NODAD
+      sock = self._OpenNetlinkSocket(netlink.NETLINK_ROUTE,
+                                     groups=RTMGRP_IPV6_IFADDR)
+
+    self._Address(version, RTM_NEWADDR, address, prefixlen, flags,
+                  RT_SCOPE_UNIVERSE, ifindex)
+
+    if version == 6:
+      self._WaitForAddress(sock, address, ifindex)
 
   def DelAddress(self, address, prefixlen, ifindex):
     self._Address(6 if ":" in address else 4,
@@ -462,7 +516,7 @@ class IPRoute(netlink.NetlinkSocket):
     return self._GetMsg(IfAddrMsg)
 
   def _Route(self, version, proto, command, table, dest, prefixlen, nexthop,
-             dev, mark, uid, route_type=RTN_UNICAST, priority=None):
+             dev, mark, uid, route_type=RTN_UNICAST, priority=None, iif=None):
     """Adds, deletes, or queries a route."""
     family = self._AddressFamily(version)
     scope = RT_SCOPE_UNIVERSE if nexthop else RT_SCOPE_LINK
@@ -486,6 +540,8 @@ class IPRoute(netlink.NetlinkSocket):
       rtmsg += self._NlAttrU32(RTA_UID, uid)
     if priority is not None:
       rtmsg += self._NlAttrU32(RTA_PRIORITY, priority)
+    if iif is not None:
+      rtmsg += self._NlAttrU32(RTA_IIF, iif)
     self._SendNlRequest(command, rtmsg)
 
   def AddRoute(self, version, table, dest, prefixlen, nexthop, dev):
@@ -496,11 +552,11 @@ class IPRoute(netlink.NetlinkSocket):
     self._Route(version, RTPROT_STATIC, RTM_DELROUTE, table, dest, prefixlen,
                 nexthop, dev, None, None)
 
-  def GetRoutes(self, dest, oif, mark, uid):
+  def GetRoutes(self, dest, oif, mark, uid, iif=None):
     version = 6 if ":" in dest else 4
     prefixlen = {4: 32, 6: 128}[version]
     self._Route(version, RTPROT_STATIC, RTM_GETROUTE, 0, dest, prefixlen, None,
-                oif, mark, uid)
+                oif, mark, uid, iif=iif)
     data = self._Recv()
     # The response will either be an error or a list of routes.
     if netlink.NLMsgHdr(data).type == netlink.NLMSG_ERROR:
@@ -509,8 +565,8 @@ class IPRoute(netlink.NetlinkSocket):
     return routes
 
   def DumpRoutes(self, version, ifindex):
-    ndmsg = NdMsg((self._AddressFamily(version), 0, 0, 0, 0))
-    return [(m, r) for (m, r) in self._Dump(RTM_GETROUTE, ndmsg, NdMsg, "")
+    rtmsg = RTMsg(family=self._AddressFamily(version))
+    return [(m, r) for (m, r) in self._Dump(RTM_GETROUTE, rtmsg, RTMsg, "")
             if r['RTA_TABLE'] == ifindex]
 
   def _Neighbour(self, version, is_add, addr, lladdr, dev, state, flags=0):

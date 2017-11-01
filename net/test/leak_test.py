@@ -31,7 +31,7 @@ class LeakTest(net_test.NetworkTest):
     s.bind(("::1", 0))
 
     # Call shutdown on another thread while a recvfrom is in progress.
-    net_test.SetSocketTimeout(s, 2000)
+    csocket.SetSocketTimeout(s, 2000)
     def ShutdownSocket():
       time.sleep(0.5)
       self.assertRaisesErrno(ENOTCONN, s.shutdown, SHUT_RDWR)
