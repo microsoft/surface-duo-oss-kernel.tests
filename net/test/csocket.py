@@ -86,6 +86,10 @@ def LinuxVersion():
   return version
 
 
+def AddressVersion(addr):
+  return 6 if ":" in addr else 4
+
+
 def SetSocketTimeout(sock, ms):
   s = ms / 1000
   us = (ms % 1000) * 1000
