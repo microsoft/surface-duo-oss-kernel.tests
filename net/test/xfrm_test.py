@@ -23,6 +23,7 @@ import subprocess
 import threading
 import unittest
 
+import csocket
 import cstruct
 import multinetwork_base
 import net_test
@@ -243,7 +244,7 @@ class XfrmFunctionalTest(xfrm_base.XfrmBaseTest):
     # be sent from srcport to port 53. Open another socket on that port, and
     # apply the inbound policy to it.
     twisted_socket = socket(AF_INET, SOCK_DGRAM, 0)
-    net_test.SetSocketTimeout(twisted_socket, 100)
+    csocket.SetSocketTimeout(twisted_socket, 100)
     twisted_socket.bind(("0.0.0.0", 53))
 
     # TODO: why does this work without a per-socket policy applied?
