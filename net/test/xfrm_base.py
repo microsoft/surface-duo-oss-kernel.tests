@@ -69,8 +69,7 @@ def ApplySocketPolicy(sock, family, direction, spi, reqid, tun_addrs):
   # Create a selector that matches all packets of the specified address family.
   # It's not actually used to select traffic, that will be done by the socket
   # policy, which selects the SA entry (i.e., xfrm state) via the SPI and reqid.
-  selector = xfrm.XfrmSelector(
-      daddr=XFRM_ADDR_ANY, saddr=XFRM_ADDR_ANY, family=family)
+  selector = xfrm.EmptySelector(family=family)
 
   # Create a user policy that specifies that all outbound packets matching the
   # (essentially no-op) selector should be encrypted.
