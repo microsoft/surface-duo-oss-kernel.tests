@@ -17,12 +17,16 @@
 Example usage:
 
 >>> # Declare a struct type by specifying name, field formats and field names.
-... # Field formats are the same as those used in the struct module.
+... # Field formats are the same as those used in the struct module, except:
+... # - S: Nested Struct.
+... # - A: NULL-padded ASCII string. Like s, but printing ignores contiguous
+... #      trailing NULL blocks at the end.
 ... import cstruct
 >>> NLMsgHdr = cstruct.Struct("NLMsgHdr", "=LHHLL", "length type flags seq pid")
 >>>
 >>>
->>> # Create instances from tuples or raw bytes. Data past the end is ignored.
+>>> # Create instances from a tuple of values, raw bytes, zero-initialized, or
+>>> # using keywords.
 ... n1 = NLMsgHdr((44, 32, 0x2, 0, 491))
 >>> print n1
 NLMsgHdr(length=44, type=32, flags=2, seq=0, pid=491)
@@ -31,6 +35,14 @@ NLMsgHdr(length=44, type=32, flags=2, seq=0, pid=491)
 ...               "\x00\x00\x00\x00\xfe\x01\x00\x00" + "junk at end")
 >>> print n2
 NLMsgHdr(length=44, type=33, flags=2, seq=0, pid=510)
+>>>
+>>> n3 = netlink.NLMsgHdr() # Zero-initialized
+>>> print n3
+NLMsgHdr(length=0, type=0, flags=0, seq=0, pid=0)
+>>>
+>>> n4 = netlink.NLMsgHdr(length=44, type=33) # Other fields zero-initialized
+>>> print n4
+NLMsgHdr(length=44, type=33, flags=0, seq=0, pid=0)
 >>>
 >>> # Serialize to raw bytes.
 ... print n1.Pack().encode("hex")
@@ -44,6 +56,15 @@ NLMsgHdr(length=44, type=33, flags=2, seq=0, pid=510)
 >>> cstruct.Read(data, NLMsgHdr)
 (NLMsgHdr(length=44, type=33, flags=2, seq=0, pid=510), 'more data')
 >>>
+>>> # Structs can contain one or more nested structs. The nested struct types
+... # are specified in a list as an optional last argument. Nested structs may
+... # contain nested structs.
+... S = cstruct.Struct("S", "=BI", "byte1 int2")
+>>> N = cstruct.Struct("N", "!BSiS", "byte1 s2 int3 s2", [S, S])
+>>> NN = cstruct.Struct("NN", "SHS", "s1 word2 n3", [S, N])
+>>> nn = NN((S((1, 25000)), -29876, N((55, S((5, 6)), 1111, S((7, 8))))))
+>>> nn.n3.s2.int2 = 5
+>>>
 """
 
 import ctypes
@@ -51,10 +72,18 @@ import string
 import struct
 
 
+def CalcSize(fmt):
+  if "A" in fmt:
+    fmt = fmt.replace("A", "s")
+  return struct.calcsize(fmt)
+
 def CalcNumElements(fmt):
-  size = struct.calcsize(fmt)
+  prevlen = len(fmt)
+  fmt = fmt.replace("S", "")
+  numstructs = prevlen - len(fmt)
+  size = CalcSize(fmt)
   elements = struct.unpack(fmt, "\x00" * size)
-  return len(elements)
+  return len(elements) + numstructs
 
 
 def Struct(name, fmt, fieldnames, substructs={}):
@@ -80,9 +109,10 @@ def Struct(name, fmt, fieldnames, substructs={}):
     _fieldnames = fieldnames
     # Dict mapping field indices to nested struct classes.
     _nested = {}
+    # List of string fields that are ASCII strings.
+    _asciiz = set()
 
-    if isinstance(_fieldnames, str):
-      _fieldnames = _fieldnames.split(" ")
+    _fieldnames = _fieldnames.split(" ")
 
     # Parse fmt into _format, converting any S format characters to "XXs",
     # where XX is the length of the struct type's packed representation.
@@ -95,13 +125,31 @@ def Struct(name, fmt, fieldnames, substructs={}):
         _nested[index] = substructs[laststructindex]
         laststructindex += 1
         _format += "%ds" % len(_nested[index])
+      elif fmt[i] == "A":
+        # Null-terminated ASCII string.
+        index = CalcNumElements(fmt[:i])
+        _asciiz.add(index)
+        _format += "s"
       else:
-         # Standard struct format character.
+        # Standard struct format character.
         _format += fmt[i]
 
-    _length = struct.calcsize(_format)
+    _length = CalcSize(_format)
+
+    offset_list = [0]
+    last_offset = 0
+    for i in xrange(len(_format)):
+      offset = CalcSize(_format[:i])
+      if offset > last_offset:
+        last_offset = offset
+        offset_list.append(offset)
+
+    # A dictionary that maps field names to their offsets in the struct.
+    _offsets = dict(zip(_fieldnames, offset_list))
 
     def _SetValues(self, values):
+      # Replace self._values with the given list. We can't do direct assignment
+      # because of the __setattr__ overload on this class.
       super(CStruct, self).__setattr__("_values", list(values))
 
     def _Parse(self, data):
@@ -112,19 +160,37 @@ def Struct(name, fmt, fieldnames, substructs={}):
           values[index] = self._nested[index](value)
       self._SetValues(values)
 
-    def __init__(self, values):
-      # Initializing from a string.
-      if isinstance(values, str):
-        if len(values) < self._length:
+    def __init__(self, tuple_or_bytes=None, **kwargs):
+      """Construct an instance of this Struct.
+
+      1. With no args, the whole struct is zero-initialized.
+      2. With keyword args, the matching fields are populated; rest are zeroed.
+      3. With one tuple as the arg, the fields are assigned based on position.
+      4. With one string arg, the Struct is parsed from bytes.
+      """
+      if tuple_or_bytes and kwargs:
+        raise TypeError(
+            "%s: cannot specify both a tuple and keyword args" % self._name)
+
+      if tuple_or_bytes is None:
+        # Default construct from null bytes.
+        self._Parse("\x00" * len(self))
+        # If any keywords were supplied, set those fields.
+        for k, v in kwargs.iteritems():
+          setattr(self, k, v)
+      elif isinstance(tuple_or_bytes, str):
+        # Initializing from a string.
+        if len(tuple_or_bytes) < self._length:
           raise TypeError("%s requires string of length %d, got %d" %
-                          (self._name, self._length, len(values)))
-        self._Parse(values)
+                          (self._name, self._length, len(tuple_or_bytes)))
+        self._Parse(tuple_or_bytes)
       else:
         # Initializing from a tuple.
-        if len(values) != len(self._fieldnames):
+        if len(tuple_or_bytes) != len(self._fieldnames):
           raise TypeError("%s has exactly %d fieldnames (%d given)" %
-                          (self._name, len(self._fieldnames), len(values)))
-        self._SetValues(values)
+                          (self._name, len(self._fieldnames),
+                           len(tuple_or_bytes)))
+        self._SetValues(tuple_or_bytes)
 
     def _FieldIndex(self, attr):
       try:
@@ -137,7 +203,14 @@ def Struct(name, fmt, fieldnames, substructs={}):
       return self._values[self._FieldIndex(name)]
 
     def __setattr__(self, name, value):
+      # TODO: check value type against self._format and throw here, or else
+      # callers get an unhelpful exception when they call Pack().
       self._values[self._FieldIndex(name)] = value
+
+    def offset(self, name):
+      if "." in name:
+        raise NotImplementedError("offset() on nested field")
+      return self._offsets[name]
 
     @classmethod
     def __len__(cls):
@@ -165,9 +238,11 @@ def Struct(name, fmt, fieldnames, substructs={}):
 
     def __str__(self):
       def FieldDesc(index, name, value):
-        if isinstance(value, str) and any(
-            c not in string.printable for c in value):
-          value = value.encode("hex")
+        if isinstance(value, str):
+          if index in self._asciiz:
+            value = value.rstrip("\x00")
+          elif any(c not in string.printable for c in value):
+            value = value.encode("hex")
         return "%s=%s" % (name, value)
 
       descriptions = [

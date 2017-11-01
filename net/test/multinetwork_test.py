@@ -57,11 +57,9 @@ class InboundMarkingTest(multinetwork_base.MultiNetworkBaseTest):
       iface = cls.GetInterfaceName(netid)
       add_del = "-A" if is_add else "-D"
       iptables = {4: "iptables", 6: "ip6tables"}[version]
-      args = "%s %s INPUT -t mangle -i %s -j MARK --set-mark %d" % (
-          iptables, add_del, iface, netid)
-      iptables = "/sbin/" + iptables
-      ret = os.spawnvp(os.P_WAIT, iptables, args.split(" "))
-      if ret:
+      args = "%s INPUT -t mangle -i %s -j MARK --set-mark %d" % (
+          add_del, iface, netid)
+      if net_test.RunIptablesCommand(version, args):
         raise ConfigurationError("Setup command failed: %s" % args)
 
   @classmethod
@@ -264,7 +262,7 @@ class OutgoingTest(multinetwork_base.MultiNetworkBaseTest):
           if prevnetid:
             ExpectSendUsesNetid(prevnetid)
             # ... until we invalidate it.
-            self.InvalidateDstCache(version, dstaddr, prevnetid)
+            self.InvalidateDstCache(version, prevnetid)
           ExpectSendUsesNetid(netid)
         else:
           ExpectSendUsesNetid(netid)
@@ -456,7 +454,7 @@ class TCPAcceptTest(InboundMarkingTest):
     establishing_ack = packets.ACK(version, remoteaddr, myaddr, reply)[1]
 
     # Attempt to confuse the kernel.
-    self.InvalidateDstCache(version, remoteaddr, netid)
+    self.InvalidateDstCache(version, netid)
 
     self.ReceivePacketOn(netid, establishing_ack)
 
@@ -473,18 +471,18 @@ class TCPAcceptTest(InboundMarkingTest):
                                payload=UDP_PAYLOAD)
       s.send(UDP_PAYLOAD)
       self.ExpectPacketOn(netid, msg + ": expecting %s" % desc, data)
-      self.InvalidateDstCache(version, remoteaddr, netid)
+      self.InvalidateDstCache(version, netid)
 
       # Keep up our end of the conversation.
       ack = packets.ACK(version, remoteaddr, myaddr, data)[1]
-      self.InvalidateDstCache(version, remoteaddr, netid)
+      self.InvalidateDstCache(version, netid)
       self.ReceivePacketOn(netid, ack)
 
       mark = self.GetSocketMark(s)
     finally:
-      self.InvalidateDstCache(version, remoteaddr, netid)
+      self.InvalidateDstCache(version, netid)
       s.close()
-      self.InvalidateDstCache(version, remoteaddr, netid)
+      self.InvalidateDstCache(version, netid)
 
     if mode == self.MODE_INCOMING_MARK:
       self.assertEquals(netid, mark,
@@ -574,6 +572,229 @@ class TCPAcceptTest(InboundMarkingTest):
   def testIPv6ExplicitMark(self):
     self.CheckTCP(6, [self.MODE_EXPLICIT_MARK])
 
+@unittest.skipUnless(multinetwork_base.HAVE_AUTOCONF_TABLE,
+                     "need support for per-table autoconf")
+class RIOTest(multinetwork_base.MultiNetworkBaseTest):
+  """Test for IPv6 RFC 4191 route information option
+
+  Relevant kernel commits:
+    upstream:
+      f104a567e673 ipv6: use rt6_get_dflt_router to get default router in rt6_route_rcv
+      bbea124bc99d net: ipv6: Add sysctl for minimum prefix len acceptable in RIOs.
+
+    android-4.9:
+      d860b2e8a7f1 FROMLIST: net: ipv6: Add sysctl for minimum prefix len acceptable in RIOs
+
+    android-4.4:
+      e953f89b8563 net: ipv6: Add sysctl for minimum prefix len acceptable in RIOs.
+
+    android-4.1:
+      84f2f47716cd net: ipv6: Add sysctl for minimum prefix len acceptable in RIOs.
+
+    android-3.18:
+      65f8936934fa net: ipv6: Add sysctl for minimum prefix len acceptable in RIOs.
+
+    android-3.10:
+      161e88ebebc7 net: ipv6: Add sysctl for minimum prefix len acceptable in RIOs.
+
+  """
+
+  def setUp(self):
+    super(RIOTest, self).setUp()
+    self.NETID = random.choice(self.NETIDS)
+    self.IFACE = self.GetInterfaceName(self.NETID)
+    # return min/max plen to default values before each test case
+    self.SetAcceptRaRtInfoMinPlen(0)
+    self.SetAcceptRaRtInfoMaxPlen(0)
+
+  def GetRoutingTable(self):
+    return self._TableForNetid(self.NETID)
+
+  def SetAcceptRaRtInfoMinPlen(self, plen):
+    self.SetSysctl(
+        "/proc/sys/net/ipv6/conf/%s/accept_ra_rt_info_min_plen"
+        % self.IFACE, plen)
+
+  def GetAcceptRaRtInfoMinPlen(self):
+    return int(self.GetSysctl(
+        "/proc/sys/net/ipv6/conf/%s/accept_ra_rt_info_min_plen" % self.IFACE))
+
+  def SetAcceptRaRtInfoMaxPlen(self, plen):
+    self.SetSysctl(
+        "/proc/sys/net/ipv6/conf/%s/accept_ra_rt_info_max_plen"
+        % self.IFACE, plen)
+
+  def GetAcceptRaRtInfoMaxPlen(self):
+    return int(self.GetSysctl(
+        "/proc/sys/net/ipv6/conf/%s/accept_ra_rt_info_max_plen" % self.IFACE))
+
+  def SendRIO(self, rtlifetime, plen, prefix, prf):
+    options = scapy.ICMPv6NDOptRouteInfo(rtlifetime=rtlifetime, plen=plen,
+                                         prefix=prefix, prf=prf)
+    self.SendRA(self.NETID, options=(options,))
+
+  def FindRoutesWithDestination(self, destination):
+    canonical = net_test.CanonicalizeIPv6Address(destination)
+    return [r for _, r in self.iproute.DumpRoutes(6, self.GetRoutingTable())
+            if ('RTA_DST' in r and r['RTA_DST'] == canonical)]
+
+  def FindRoutesWithGateway(self):
+    return [r for _, r in self.iproute.DumpRoutes(6, self.GetRoutingTable())
+            if 'RTA_GATEWAY' in r]
+
+  def CountRoutes(self):
+    return len(self.iproute.DumpRoutes(6, self.GetRoutingTable()))
+
+  def GetRouteExpiration(self, route):
+    return float(route['RTA_CACHEINFO'].expires) / 100.0
+
+  def AssertExpirationInRange(self, routes, lifetime, epsilon):
+    self.assertTrue(routes)
+    found = False
+    # Assert that at least one route in routes has the expected lifetime
+    for route in routes:
+      expiration = self.GetRouteExpiration(route)
+      if expiration < lifetime - epsilon:
+        continue
+      if expiration > lifetime + epsilon:
+        continue
+      found = True
+    self.assertTrue(found)
+
+  def DelRA6(self, prefix, plen):
+    version = 6
+    netid = self.NETID
+    table = self._TableForNetid(netid)
+    router = self._RouterAddress(netid, version)
+    ifindex = self.ifindices[netid]
+    # We actually want to specify RTPROT_RA, however an upstream
+    # kernel bug causes RAs to be installed with RTPROT_BOOT.
+    self.iproute._Route(version, iproute.RTPROT_BOOT, iproute.RTM_DELROUTE,
+                        table, prefix, plen, router, ifindex, None, None)
+
+  def testSetAcceptRaRtInfoMinPlen(self):
+    for plen in xrange(-1, 130):
+      self.SetAcceptRaRtInfoMinPlen(plen)
+      self.assertEquals(plen, self.GetAcceptRaRtInfoMinPlen())
+
+  def testSetAcceptRaRtInfoMaxPlen(self):
+    for plen in xrange(-1, 130):
+      self.SetAcceptRaRtInfoMaxPlen(plen)
+      self.assertEquals(plen, self.GetAcceptRaRtInfoMaxPlen())
+
+  def testZeroRtLifetime(self):
+    PREFIX = "2001:db8:8901:2300::"
+    RTLIFETIME = 73500
+    PLEN = 56
+    PRF = 0
+    self.SetAcceptRaRtInfoMaxPlen(PLEN)
+    self.SendRIO(RTLIFETIME, PLEN, PREFIX, PRF)
+    # Give the kernel time to notice our RA
+    time.sleep(0.01)
+    self.assertTrue(self.FindRoutesWithDestination(PREFIX))
+    # RIO with rtlifetime = 0 should remove from routing table
+    self.SendRIO(0, PLEN, PREFIX, PRF)
+    # Give the kernel time to notice our RA
+    time.sleep(0.01)
+    self.assertFalse(self.FindRoutesWithDestination(PREFIX))
+
+  def testMinPrefixLenRejection(self):
+    PREFIX = "2001:db8:8902:2345::"
+    RTLIFETIME = 70372
+    PRF = 0
+    # sweep from high to low to avoid spurious failures from late arrivals.
+    for plen in xrange(130, 1, -1):
+      self.SetAcceptRaRtInfoMinPlen(plen)
+      # RIO with plen < min_plen should be ignored
+      self.SendRIO(RTLIFETIME, plen - 1, PREFIX, PRF)
+    # Give the kernel time to notice our RAs
+    time.sleep(0.1)
+    # Expect no routes
+    routes = self.FindRoutesWithDestination(PREFIX)
+    self.assertFalse(routes)
+
+  def testMaxPrefixLenRejection(self):
+    PREFIX = "2001:db8:8903:2345::"
+    RTLIFETIME = 73078
+    PRF = 0
+    # sweep from low to high to avoid spurious failures from late arrivals.
+    for plen in xrange(-1, 128, 1):
+      self.SetAcceptRaRtInfoMaxPlen(plen)
+      # RIO with plen > max_plen should be ignored
+      self.SendRIO(RTLIFETIME, plen + 1, PREFIX, PRF)
+    # Give the kernel time to notice our RAs
+    time.sleep(0.1)
+    # Expect no routes
+    routes = self.FindRoutesWithDestination(PREFIX)
+    self.assertFalse(routes)
+
+  def testSimpleAccept(self):
+    PREFIX = "2001:db8:8904:2345::"
+    RTLIFETIME = 9993
+    PRF = 0
+    PLEN = 56
+    self.SetAcceptRaRtInfoMinPlen(48)
+    self.SetAcceptRaRtInfoMaxPlen(64)
+    self.SendRIO(RTLIFETIME, PLEN, PREFIX, PRF)
+    # Give the kernel time to notice our RA
+    time.sleep(0.01)
+    routes = self.FindRoutesWithGateway()
+    self.AssertExpirationInRange(routes, RTLIFETIME, 1)
+    self.DelRA6(PREFIX, PLEN)
+
+  def testEqualMinMaxAccept(self):
+    PREFIX = "2001:db8:8905:2345::"
+    RTLIFETIME = 6326
+    PLEN = 21
+    PRF = 0
+    self.SetAcceptRaRtInfoMinPlen(PLEN)
+    self.SetAcceptRaRtInfoMaxPlen(PLEN)
+    self.SendRIO(RTLIFETIME, PLEN, PREFIX, PRF)
+    # Give the kernel time to notice our RA
+    time.sleep(0.01)
+    routes = self.FindRoutesWithGateway()
+    self.AssertExpirationInRange(routes, RTLIFETIME, 1)
+    self.DelRA6(PREFIX, PLEN)
+
+  def testZeroLengthPrefix(self):
+    PREFIX = "2001:db8:8906:2345::"
+    RTLIFETIME = self.RA_VALIDITY * 2
+    PLEN = 0
+    PRF = 0
+    # Max plen = 0 still allows default RIOs!
+    self.SetAcceptRaRtInfoMaxPlen(PLEN)
+    self.SendRA(self.NETID)
+    # Give the kernel time to notice our RA
+    time.sleep(0.01)
+    default = self.FindRoutesWithGateway()
+    self.AssertExpirationInRange(default, self.RA_VALIDITY, 1)
+    # RIO with prefix length = 0, should overwrite default route lifetime
+    # note that the RIO lifetime overwrites the RA lifetime.
+    self.SendRIO(RTLIFETIME, PLEN, PREFIX, PRF)
+    # Give the kernel time to notice our RA
+    time.sleep(0.01)
+    default = self.FindRoutesWithGateway()
+    self.AssertExpirationInRange(default, RTLIFETIME, 1)
+    self.DelRA6(PREFIX, PLEN)
+
+  def testManyRIOs(self):
+    RTLIFETIME = 68012
+    PLEN = 56
+    PRF = 0
+    COUNT = 1000
+    baseline = self.CountRoutes()
+    self.SetAcceptRaRtInfoMaxPlen(56)
+    # Send many RIOs compared to the expected number on a healthy system.
+    for i in xrange(0, COUNT):
+      prefix = "2001:db8:%x:1100::" % i
+      self.SendRIO(RTLIFETIME, PLEN, prefix, PRF)
+    time.sleep(0.1)
+    self.assertEquals(COUNT + baseline, self.CountRoutes())
+    for i in xrange(0, COUNT):
+      prefix = "2001:db8:%x:1100::" % i
+      self.DelRA6(prefix, PLEN)
+    # Expect that we can return to baseline config without lingering routes.
+    self.assertEquals(baseline, self.CountRoutes())
 
 class RATest(multinetwork_base.MultiNetworkBaseTest):
 
@@ -804,13 +1025,30 @@ class UidRoutingTest(multinetwork_base.MultiNetworkBaseTest):
   """Tests that per-UID routing works properly.
 
   Relevant kernel commits:
-    android-3.4:
-      0b42874 net: core: Support UID-based routing.
-      0836a0c Handle 'sk' being NULL in UID-based routing.
+    upstream net-next:
+      7d99569460 net: ipv4: Don't crash if passing a null sk to ip_do_redirect.
+      d109e61bfe net: ipv4: Don't crash if passing a null sk to ip_rt_update_pmtu.
+      35b80733b3 net: core: add missing check for uid_range in rule_exists.
+      e2d118a1cb net: inet: Support UID-based routing in IP protocols.
+      622ec2c9d5 net: core: add UID to flows, rules, and routes
+      86741ec254 net: core: Add a UID field to struct sock.
 
-    android-3.10:
-      99a6ea4 net: core: Support UID-based routing.
-      455b09d Handle 'sk' being NULL in UID-based routing.
+    android-3.18:
+      b004e79504 net: ipv4: Don't crash if passing a null sk to ip_rt_update_pmtu.
+      04c0eace81 net: inet: Support UID-based routing in IP protocols.
+      18c36d7b71 net: core: add UID to flows, rules, and routes
+      80e3440721 net: core: Add a UID field to struct sock.
+      fa8cc2c30c Revert "net: core: Support UID-based routing."
+      b585141890 Revert "Handle 'sk' being NULL in UID-based routing."
+      5115ab7514 Revert "net: core: fix UID-based routing build"
+      f9f4281f79 Revert "ANDROID: net: fib: remove duplicate assignment"
+
+    android-4.4:
+      341965cf10 net: ipv4: Don't crash if passing a null sk to ip_rt_update_pmtu.
+      344afd627c net: inet: Support UID-based routing in IP protocols.
+      03441d56d8 net: core: add UID to flows, rules, and routes
+      eb964bdba7 net: core: Add a UID field to struct sock.
+      9789b697c6 Revert "net: core: Support UID-based routing."
   """
 
   def GetRulesAtPriority(self, version, priority):
@@ -922,6 +1160,16 @@ class UidRoutingTest(multinetwork_base.MultiNetworkBaseTest):
 
   def testIPv6GetAndSetRules(self):
     self.CheckGetAndSetRules(6)
+
+  @unittest.skipUnless(net_test.LINUX_VERSION >= (4, 9, 0), "not backported")
+  def testDeleteErrno(self):
+    for version in [4, 6]:
+      table = self._Random()
+      priority = self._Random()
+      self.assertRaisesErrno(
+          errno.EINVAL,
+          self.iproute.UidRangeRule, version, False, 100, 0xffffffff, table,
+          priority)
 
   def ExpectNoRoute(self, addr, oif, mark, uid):
     # The lack of a route may be either an error, or an unreachable route.

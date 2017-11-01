@@ -14,7 +14,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import errno
 import fcntl
 import os
 import random
@@ -41,6 +40,7 @@ SO_BINDTODEVICE = 25
 SO_MARK = 36
 SO_PROTOCOL = 38
 SO_DOMAIN = 39
+SO_COOKIE = 57
 
 ETH_P_IP = 0x0800
 ETH_P_IPV6 = 0x86dd
@@ -89,11 +89,15 @@ KERN_INFO = 6
 LINUX_VERSION = csocket.LinuxVersion()
 
 
-def SetSocketTimeout(sock, ms):
-  s = ms / 1000
-  us = (ms % 1000) * 1000
-  sock.setsockopt(SOL_SOCKET, SO_RCVTIMEO, struct.pack("LL", s, us))
+def GetWildcardAddress(version):
+  return {4: "0.0.0.0", 6: "::"}[version]
 
+
+def GetAddressFamily(version):
+  return {4: AF_INET, 6: AF_INET6}[version]
+
+def AddressLengthBits(version):
+  return {4: 32, 6: 128}[version]
 
 def SetSocketTos(s, tos):
   level = {AF_INET: SOL_IP, AF_INET6: SOL_IPV6}[s.family]
@@ -109,7 +113,7 @@ def SetNonBlocking(fd):
 # Convenience functions to create sockets.
 def Socket(family, sock_type, protocol):
   s = socket(family, sock_type, protocol)
-  SetSocketTimeout(s, 5000)
+  csocket.SetSocketTimeout(s, 5000)
   return s
 
 
@@ -226,13 +230,17 @@ def SetInterfaceDown(ifname):
   return SetInterfaceState(ifname, False)
 
 
+def CanonicalizeIPv6Address(addr):
+  return inet_ntop(AF_INET6, inet_pton(AF_INET6, addr))
+
+
 def FormatProcAddress(unformatted):
   groups = []
   for i in xrange(0, len(unformatted), 4):
     groups.append(unformatted[i:i+4])
   formatted = ":".join(groups)
   # Compress the address.
-  address = inet_ntop(AF_INET6, inet_pton(AF_INET6, formatted))
+  address = CanonicalizeIPv6Address(formatted)
   return address
 
 
@@ -318,6 +326,14 @@ def SetFlowLabel(s, addr, label):
   # Caller also needs to do s.setsockopt(SOL_IPV6, IPV6_FLOWINFO_SEND, 1).
 
 
+def RunIptablesCommand(version, args):
+  iptables = {4: "iptables", 6: "ip6tables"}[version]
+  iptables_path = "/sbin/" + iptables
+  if not os.access(iptables_path, os.X_OK):
+    iptables_path = "/system/bin" + iptables
+  return os.spawnvp(os.P_WAIT, iptables_path, [iptables_path] + args.split(" "))
+
+
 # Determine network configuration.
 try:
   GetDefaultRoute(version=4)
@@ -331,36 +347,60 @@ try:
 except ValueError:
   HAVE_IPV6 = False
 
-
-CONTINUOUS_BUILD = re.search("net_test_mode=builder",
-                             open("/proc/cmdline").read())
-
-
-class RunAsUid(object):
+class RunAsUidGid(object):
   """Context guard to run a code block as a given UID."""
 
-  def __init__(self, uid):
+  def __init__(self, uid, gid):
     self.uid = uid
+    self.gid = gid
 
   def __enter__(self):
     if self.uid:
       self.saved_uid = os.geteuid()
       self.saved_groups = os.getgroups()
-      if self.uid:
-        os.setgroups(self.saved_groups + [AID_INET])
-        os.seteuid(self.uid)
+      os.setgroups(self.saved_groups + [AID_INET])
+      os.seteuid(self.uid)
+    if self.gid:
+      self.saved_gid = os.getgid()
+      os.setgid(self.gid)
 
   def __exit__(self, unused_type, unused_value, unused_traceback):
     if self.uid:
       os.seteuid(self.saved_uid)
       os.setgroups(self.saved_groups)
+    if self.gid:
+      os.setgid(self.saved_gid)
+
+class RunAsUid(RunAsUidGid):
+  """Context guard to run a code block as a given GID and UID."""
+
+  def __init__(self, uid):
+    RunAsUidGid.__init__(self, uid, 0)
 
 
 class NetworkTest(unittest.TestCase):
 
-  def assertRaisesErrno(self, err_num, f, *args):
+  def assertRaisesErrno(self, err_num, f=None, *args):
+    """Test that the system returns an errno error.
+
+    This works similarly to unittest.TestCase.assertRaises. You can call it as
+    an assertion, or use it as a context manager.
+    e.g.
+        self.assertRaisesErrno(errno.ENOENT, do_things, arg1, arg2)
+    or
+        with self.assertRaisesErrno(errno.ENOENT):
+          do_things(arg1, arg2)
+
+    Args:
+      err_num: an errno constant
+      f: (optional) A callable that should result in error
+      *args: arguments passed to f
+    """
     msg = os.strerror(err_num)
-    self.assertRaisesRegexp(EnvironmentError, msg, f, *args)
+    if f is None:
+      return self.assertRaisesRegexp(EnvironmentError, msg)
+    else:
+      self.assertRaisesRegexp(EnvironmentError, msg, f, *args)
 
   def ReadProcNetSocket(self, protocol):
     # Read file.

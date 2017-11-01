@@ -29,7 +29,6 @@ import time
 from scapy import all as scapy
 
 import csocket
-import cstruct
 import iproute
 import net_test
 
@@ -113,6 +112,8 @@ class MultiNetworkBaseTest(net_test.NetworkTest):
   IPV4_PING = net_test.IPV4_PING
   IPV6_PING = net_test.IPV6_PING
 
+  RA_VALIDITY = 300 # seconds
+
   @classmethod
   def UidRangeForNetid(cls, netid):
     return (
@@ -195,7 +196,10 @@ class MultiNetworkBaseTest(net_test.NetworkTest):
   @classmethod
   def CreateTunInterface(cls, netid):
     iface = cls.GetInterfaceName(netid)
-    f = open("/dev/net/tun", "r+b")
+    try:
+      f = open("/dev/net/tun", "r+b")
+    except IOError:
+      f = open("/dev/tun", "r+b")
     ifr = struct.pack("16sH", iface, IFF_TAP | IFF_NO_PI)
     ifr += "\x00" * (40 - len(ifr))
     fcntl.ioctl(f, TUNSETIFF, ifr)
@@ -210,8 +214,8 @@ class MultiNetworkBaseTest(net_test.NetworkTest):
     return f
 
   @classmethod
-  def SendRA(cls, netid, retranstimer=None, reachabletime=0):
-    validity = 300                 # seconds
+  def SendRA(cls, netid, retranstimer=None, reachabletime=0, options=()):
+    validity = cls.RA_VALIDITY # seconds
     macaddr = cls.RouterMacAddress(netid)
     lladdr = cls._RouterAddress(netid, 6)
 
@@ -236,6 +240,8 @@ class MultiNetworkBaseTest(net_test.NetworkTest):
                                       L=1, A=1,
                                       validlifetime=validity,
                                       preferredlifetime=validity))
+    for option in options:
+      ra /= option
     posix.write(cls.tuns[netid].fileno(), str(ra))
 
   @classmethod
@@ -450,6 +456,19 @@ class MultiNetworkBaseTest(net_test.NetworkTest):
 
     return s
 
+  def RandomNetid(self, exclude=None):
+    """Return a random netid from the list of netids
+
+    Args:
+      exclude: a netid or list of netids that should not be chosen
+    """
+    if exclude is None:
+      exclude = []
+    elif isinstance(exclude, int):
+        exclude = [exclude]
+    diff = [netid for netid in self.NETIDS if netid not in exclude]
+    return random.choice(diff)
+
   def SendOnNetid(self, version, s, dstaddr, dstport, netid, payload, cmsgs):
     if netid is not None:
       pktinfo = MakePktInfo(version, None, self.ifindices[netid])
@@ -497,11 +516,13 @@ class MultiNetworkBaseTest(net_test.NetworkTest):
           raise e
     return packets
 
-  def InvalidateDstCache(self, version, remoteaddr, netid):
-    """Invalidates destination cache entries of sockets to remoteaddr.
+  def InvalidateDstCache(self, version, netid):
+    """Invalidates destination cache entries of sockets on the specified table.
 
-    Creates and then deletes a route pointing to remoteaddr, which invalidates
-    the destination cache entries of any sockets connected to remoteaddr.
+    Creates and then deletes a low-priority throw route in the table for the
+    given netid, which invalidates the destination cache entries of any sockets
+    that refer to routes in that table.
+
     The fact that this method actually invalidates destination cache entries is
     tested by OutgoingTest#testIPv[46]Remarking, which checks that the kernel
     does not re-route sockets when they are remarked, but does re-route them if
@@ -509,16 +530,16 @@ class MultiNetworkBaseTest(net_test.NetworkTest):
 
     Args:
       version: The IP version, 4 or 6.
-      remoteaddr: The IP address to temporarily reroute.
-      netid: The netid to add/remove the route to.
+      netid: The netid to invalidate dst caches on.
     """
     iface = self.GetInterfaceName(netid)
     ifindex = self.ifindices[netid]
     table = self._TableForNetid(netid)
-    nexthop = self._RouterAddress(netid, version)
-    plen = {4: 32, 6: 128}[version]
-    self.iproute.AddRoute(version, table, remoteaddr, plen, nexthop, ifindex)
-    self.iproute.DelRoute(version, table, remoteaddr, plen, nexthop, ifindex)
+    for action in [iproute.RTM_NEWROUTE, iproute.RTM_DELROUTE]:
+      self.iproute._Route(version, iproute.RTPROT_STATIC, action, table,
+                          "default", 0, nexthop=None, dev=None, mark=None,
+                          uid=None, route_type=iproute.RTN_THROW,
+                          priority=100000)
 
   def ClearTunQueues(self):
     # Keep reading packets on all netids until we get no packets on any of them.

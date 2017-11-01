@@ -468,7 +468,7 @@ class Ping6Test(multinetwork_base.MultiNetworkBaseTest):
     s5.bind(("0.0.0.0", 167))
     s4.sendto(net_test.IPV4_PING, (net_test.IPV4_ADDR, 44))
     self.assertValidPingResponse(s5, net_test.IPV4_PING)
-    net_test.SetSocketTimeout(s4, 100)
+    csocket.SetSocketTimeout(s4, 100)
     self.assertRaisesErrno(errno.EAGAIN, s4.recv, 32768)
 
     # If SO_REUSEADDR is turned off, then we get EADDRINUSE.
@@ -615,15 +615,16 @@ class Ping6Test(multinetwork_base.MultiNetworkBaseTest):
       upstream net:
         5e45789 net: ipv6: Fix ping to link-local addresses.
     """
-    s = net_test.IPv6PingSocket()
     for mode in ["oif", "ucast_oif", None]:
       s = net_test.IPv6PingSocket()
       for netid in self.NETIDS:
+        s2 = net_test.IPv6PingSocket()
         dst = self._RouterAddress(netid, 6)
         self.assertTrue(dst.startswith("fe80:"))
 
         if mode:
           self.SelectInterface(s, netid, mode)
+          self.SelectInterface(s2, netid, mode)
           scopeid = 0
         else:
           scopeid = self.ifindices[netid]
@@ -637,10 +638,20 @@ class Ping6Test(multinetwork_base.MultiNetworkBaseTest):
           self.assertRaisesErrno(
               errno.EINVAL,
               s.sendto, net_test.IPV6_PING, (dst, 55, 0, otherscopeid))
+          self.assertRaisesErrno(
+              errno.EINVAL,
+              s.connect, (dst, 55, 0, otherscopeid))
 
+        # Try using both sendto and connect/send.
+        # If we get a reply, we sent the packet out on the right interface.
         s.sendto(net_test.IPV6_PING, (dst, 123, 0, scopeid))
-        # If we got a reply, we sent the packet out on the right interface.
         self.assertValidPingResponse(s, net_test.IPV6_PING)
+
+        # IPV6_UNICAST_IF doesn't work on connected sockets.
+        if mode != "ucast_oif":
+          s2.connect((dst, 123, 0, scopeid))
+          s2.send(net_test.IPV6_PING)
+          self.assertValidPingResponse(s2, net_test.IPV6_PING)
 
   def testMappedAddressFails(self):
     s = net_test.IPv6PingSocket()

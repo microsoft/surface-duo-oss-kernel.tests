@@ -61,14 +61,14 @@ def UDP(version, srcaddr, dstaddr, sport=0):
           ip(src=srcaddr, dst=dstaddr) /
           scapy.UDP(sport=sport, dport=53) / UDP_PAYLOAD)
 
-def UDPWithOptions(version, srcaddr, dstaddr, sport=0):
+def UDPWithOptions(version, srcaddr, dstaddr, sport=0, lifetime=39):
   if version == 4:
-    packet = (scapy.IP(src=srcaddr, dst=dstaddr, ttl=39, tos=0x83) /
+    packet = (scapy.IP(src=srcaddr, dst=dstaddr, ttl=lifetime, tos=0x83) /
               scapy.UDP(sport=sport, dport=53) /
               UDP_PAYLOAD)
   else:
     packet = (scapy.IPv6(src=srcaddr, dst=dstaddr,
-                         fl=0xbeef, hlim=39, tc=0x83) /
+                         fl=0xbeef, hlim=lifetime, tc=0x83) /
               scapy.UDP(sport=sport, dport=53) /
               UDP_PAYLOAD)
   return ("UDPv%d packet with options" % version, packet)
@@ -92,7 +92,8 @@ def RST(version, srcaddr, dstaddr, packet):
   return ("TCP RST",
           ip(src=srcaddr, dst=dstaddr) /
           scapy.TCP(sport=original.dport, dport=original.sport,
-                    ack=original.seq + was_syn_or_fin, seq=None,
+                    ack=original.seq + was_syn_or_fin,
+                    seq=original.ack,
                     flags=TCP_RST | TCP_ACK, window=TCP_WINDOW))
 
 def SYNACK(version, srcaddr, dstaddr, packet):

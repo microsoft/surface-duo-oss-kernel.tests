@@ -18,40 +18,17 @@
 
 # pylint: disable=g-bad-todo
 
+from socket import AF_INET
+from socket import AF_INET6
+
 import errno
 import os
 import socket
 import struct
-import sys
 
 import csocket
 import cstruct
 import netlink
-
-### Base netlink constants. See include/uapi/linux/netlink.h.
-NETLINK_ROUTE = 0
-
-# Request constants.
-NLM_F_REQUEST = 1
-NLM_F_ACK = 4
-NLM_F_REPLACE = 0x100
-NLM_F_EXCL = 0x200
-NLM_F_CREATE = 0x400
-NLM_F_DUMP = 0x300
-
-# Message types.
-NLMSG_ERROR = 2
-NLMSG_DONE = 3
-
-# Data structure formats.
-# These aren't constants, they're classes. So, pylint: disable=invalid-name
-NLMsgHdr = cstruct.Struct("NLMsgHdr", "=LHHLL", "length type flags seq pid")
-NLMsgErr = cstruct.Struct("NLMsgErr", "=i", "error")
-NLAttr = cstruct.Struct("NLAttr", "=HH", "nla_len nla_type")
-
-# Alignment / padding.
-NLA_ALIGNTO = 4
-
 
 ### rtnetlink constants. See include/uapi/linux/rtnetlink.h.
 # Message types.
@@ -75,10 +52,13 @@ RTM_GETRULE = 34
 RTN_UNSPEC = 0
 RTN_UNICAST = 1
 RTN_UNREACHABLE = 7
+RTN_THROW = 9
 
 # Routing protocol values (rtm_protocol).
 RTPROT_UNSPEC = 0
+RTPROT_BOOT = 3
 RTPROT_STATIC = 4
+RTPROT_RA = 9
 
 # Route scope values (rtm_scope).
 RT_SCOPE_UNIVERSE = 0
@@ -90,6 +70,7 @@ RT_TABLE_UNSPEC = 0
 # Routing attributes.
 RTA_DST = 1
 RTA_SRC = 2
+RTA_IIF = 3
 RTA_OIF = 4
 RTA_GATEWAY = 5
 RTA_PRIORITY = 6
@@ -98,7 +79,11 @@ RTA_METRICS = 8
 RTA_CACHEINFO = 12
 RTA_TABLE = 15
 RTA_MARK = 16
+RTA_PREF = 20
 RTA_UID = 25
+
+# Netlink groups.
+RTMGRP_IPV6_IFADDR = 0x100
 
 # Route metric attributes.
 RTAX_MTU = 2
@@ -172,16 +157,27 @@ FRA_UID_RANGE = 20
 FibRuleUidRange = cstruct.Struct("FibRuleUidRange", "=II", "start end")
 
 # Link constants. See include/uapi/linux/if_link.h.
+IFLA_UNSPEC = 0
 IFLA_ADDRESS = 1
 IFLA_BROADCAST = 2
 IFLA_IFNAME = 3
 IFLA_MTU = 4
+IFLA_LINK = 5
 IFLA_QDISC = 6
 IFLA_STATS = 7
+IFLA_COST = 8
+IFLA_PRIORITY = 9
+IFLA_MASTER = 10
+IFLA_WIRELESS = 11
+IFLA_PROTINFO = 12
 IFLA_TXQLEN = 13
 IFLA_MAP = 14
+IFLA_WEIGHT = 15
 IFLA_OPERSTATE = 16
 IFLA_LINKMODE = 17
+IFLA_LINKINFO = 18
+IFLA_NET_NS_PID = 19
+IFLA_IFALIAS = 20
 IFLA_STATS64 = 23
 IFLA_AF_SPEC = 26
 IFLA_GROUP = 27
@@ -190,6 +186,20 @@ IFLA_PROMISCUITY = 30
 IFLA_NUM_TX_QUEUES = 31
 IFLA_NUM_RX_QUEUES = 32
 IFLA_CARRIER = 33
+
+# linux/include/uapi/if_link.h
+IFLA_INFO_UNSPEC = 0
+IFLA_INFO_KIND = 1
+IFLA_INFO_DATA = 2
+IFLA_INFO_XSTATS = 3
+
+# linux/if_tunnel.h
+IFLA_VTI_UNSPEC = 0
+IFLA_VTI_LINK = 1
+IFLA_VTI_IKEY = 2
+IFLA_VTI_OKEY = 3
+IFLA_VTI_LOCAL = 4
+IFLA_VTI_REMOTE = 5
 
 
 def CommandVerb(command):
@@ -209,11 +219,6 @@ def CommandName(command):
 
 class IPRoute(netlink.NetlinkSocket):
   """Provides a tiny subset of iproute functionality."""
-
-  FAMILY = NETLINK_ROUTE
-
-  def _NlAttrIPAddress(self, nla_type, family, address):
-    return self._NlAttr(nla_type, socket.inet_pton(family, address))
 
   def _NlAttrInterfaceName(self, nla_type, interface):
     return self._NlAttr(nla_type, interface + "\x00")
@@ -285,7 +290,7 @@ class IPRoute(netlink.NetlinkSocket):
                   "IFA_LABEL"]:
       data = nla_data.strip("\x00")
     elif name == "RTA_METRICS":
-      data = self._ParseAttributes(-RTA_METRICS, msg.family, None, nla_data)
+      data = self._ParseAttributes(-RTA_METRICS, None, nla_data)
     elif name == "RTA_CACHEINFO":
       data = RTACacheinfo(nla_data)
     elif name == "IFA_CACHEINFO":
@@ -302,20 +307,20 @@ class IPRoute(netlink.NetlinkSocket):
     return name, data
 
   def __init__(self):
-    super(IPRoute, self).__init__()
+    super(IPRoute, self).__init__(netlink.NETLINK_ROUTE)
 
   def _AddressFamily(self, version):
-    return {4: socket.AF_INET, 6: socket.AF_INET6}[version]
+    return {4: AF_INET, 6: AF_INET6}[version]
 
   def _SendNlRequest(self, command, data, flags=0):
     """Sends a netlink request and expects an ack."""
 
-    flags |= NLM_F_REQUEST
+    flags |= netlink.NLM_F_REQUEST
     if CommandVerb(command) != "GET":
-      flags |= NLM_F_ACK
+      flags |= netlink.NLM_F_ACK
     if CommandVerb(command) == "NEW":
-      if not flags & NLM_F_REPLACE:
-        flags |= (NLM_F_EXCL | NLM_F_CREATE)
+      if not flags & netlink.NLM_F_REPLACE:
+        flags |= (netlink.NLM_F_EXCL | netlink.NLM_F_CREATE)
 
     super(IPRoute, self)._SendNlRequest(command, data, flags)
 
@@ -403,18 +408,18 @@ class IPRoute(netlink.NetlinkSocket):
     except IndexError:
       raise ValueError("Don't know how to print command type %s" % name)
 
-  def MaybeDebugCommand(self, command, data):
+  def MaybeDebugCommand(self, command, unused_flags, data):
     subject = CommandSubject(command)
     if "ALL" not in self.NL_DEBUG and subject not in self.NL_DEBUG:
       return
     print self.CommandToString(command, data)
 
   def MaybeDebugMessage(self, message):
-    hdr = NLMsgHdr(message)
+    hdr = netlink.NLMsgHdr(message)
     self.MaybeDebugCommand(hdr.type, message)
 
   def PrintMessage(self, message):
-    hdr = NLMsgHdr(message)
+    hdr = netlink.NLMsgHdr(message)
     print self.CommandToString(hdr.type, message)
 
   def DumpRules(self, version):
@@ -442,10 +447,59 @@ class IPRoute(netlink.NetlinkSocket):
       ifaddrmsg += self._NlAttrIPAddress(IFA_LOCAL, family, addr)
     self._SendNlRequest(command, ifaddrmsg)
 
+  def _WaitForAddress(self, sock, address, ifindex):
+    # IPv6 addresses aren't immediately usable when the netlink ACK comes back.
+    # Even if DAD is disabled via IFA_F_NODAD or on the interface, when the ACK
+    # arrives the input route has not yet been added to the local table. The
+    # route is added in addrconf_dad_begin with a delayed timer of 0, but if
+    # the system is under load, we could win the race against that timer and
+    # cause the tests to be flaky. So, wait for RTM_NEWADDR to arrive
+    csocket.SetSocketTimeout(sock, 100)
+    while True:
+      try:
+        data = sock.recv(4096)
+      except EnvironmentError as e:
+        raise AssertionError("Address %s did not appear on ifindex %d: %s" %
+                             (address, ifindex, e.strerror))
+      msg, attrs = self._ParseNLMsg(data, IfAddrMsg)[0]
+      if msg.index == ifindex and attrs["IFA_ADDRESS"] == address:
+        return
+
   def AddAddress(self, address, prefixlen, ifindex):
-    self._Address(6 if ":" in address else 4,
-                  RTM_NEWADDR, address, prefixlen,
-                  IFA_F_PERMANENT, RT_SCOPE_UNIVERSE, ifindex)
+    """Adds a statically-configured IP address to an interface.
+
+    The address is created with flags IFA_F_PERMANENT, and, if IPv6,
+    IFA_F_NODAD. The requested scope is RT_SCOPE_UNIVERSE, but at least for
+    IPv6, is instead determined by the kernel.
+
+    In order to avoid races (see comments in _WaitForAddress above), when
+    configuring IPv6 addresses, the method blocks until it receives an
+    RTM_NEWADDR from the kernel confirming that the address has been added.
+    If the address does not appear within 100ms, AssertionError is thrown.
+
+    Args:
+      address: A string, the IP address to configure.
+      prefixlen: The prefix length passed to the kernel. If not /32 for IPv4 or
+        /128 for IPv6, the kernel creates an implicit directly-connected route.
+      ifindex: The interface index to add the address to.
+
+    Raises:
+      AssertionError: An IPv6 address was requested, and it did not appear
+        within the timeout.
+    """
+    version = 6 if ":" in address else 4
+
+    flags = IFA_F_PERMANENT
+    if version == 6:
+      flags |= IFA_F_NODAD
+      sock = self._OpenNetlinkSocket(netlink.NETLINK_ROUTE,
+                                     groups=RTMGRP_IPV6_IFADDR)
+
+    self._Address(version, RTM_NEWADDR, address, prefixlen, flags,
+                  RT_SCOPE_UNIVERSE, ifindex)
+
+    if version == 6:
+      self._WaitForAddress(sock, address, ifindex)
 
   def DelAddress(self, address, prefixlen, ifindex):
     self._Address(6 if ":" in address else 4,
@@ -461,13 +515,13 @@ class IPRoute(netlink.NetlinkSocket):
     self._Address(6, RTM_GETADDR, address, 0, 0, RT_SCOPE_UNIVERSE, ifindex)
     return self._GetMsg(IfAddrMsg)
 
-  def _Route(self, version, command, table, dest, prefixlen, nexthop, dev,
-             mark, uid):
+  def _Route(self, version, proto, command, table, dest, prefixlen, nexthop,
+             dev, mark, uid, route_type=RTN_UNICAST, priority=None, iif=None):
     """Adds, deletes, or queries a route."""
     family = self._AddressFamily(version)
     scope = RT_SCOPE_UNIVERSE if nexthop else RT_SCOPE_LINK
     rtmsg = RTMsg((family, prefixlen, 0, 0, RT_TABLE_UNSPEC,
-                   RTPROT_STATIC, scope, RTN_UNICAST, 0)).Pack()
+                   proto, scope, route_type, 0)).Pack()
     if command == RTM_NEWROUTE and not table:
       # Don't allow setting routes in table 0, since its behaviour is confusing
       # and differs between IPv4 and IPv6.
@@ -484,26 +538,36 @@ class IPRoute(netlink.NetlinkSocket):
       rtmsg += self._NlAttrU32(RTA_MARK, mark)
     if uid is not None:
       rtmsg += self._NlAttrU32(RTA_UID, uid)
+    if priority is not None:
+      rtmsg += self._NlAttrU32(RTA_PRIORITY, priority)
+    if iif is not None:
+      rtmsg += self._NlAttrU32(RTA_IIF, iif)
     self._SendNlRequest(command, rtmsg)
 
   def AddRoute(self, version, table, dest, prefixlen, nexthop, dev):
-    self._Route(version, RTM_NEWROUTE, table, dest, prefixlen, nexthop, dev,
-                None, None)
+    self._Route(version, RTPROT_STATIC, RTM_NEWROUTE, table, dest, prefixlen,
+                nexthop, dev, None, None)
 
   def DelRoute(self, version, table, dest, prefixlen, nexthop, dev):
-    self._Route(version, RTM_DELROUTE, table, dest, prefixlen, nexthop, dev,
-                None, None)
+    self._Route(version, RTPROT_STATIC, RTM_DELROUTE, table, dest, prefixlen,
+                nexthop, dev, None, None)
 
-  def GetRoutes(self, dest, oif, mark, uid):
+  def GetRoutes(self, dest, oif, mark, uid, iif=None):
     version = 6 if ":" in dest else 4
     prefixlen = {4: 32, 6: 128}[version]
-    self._Route(version, RTM_GETROUTE, 0, dest, prefixlen, None, oif, mark, uid)
+    self._Route(version, RTPROT_STATIC, RTM_GETROUTE, 0, dest, prefixlen, None,
+                oif, mark, uid, iif=iif)
     data = self._Recv()
     # The response will either be an error or a list of routes.
-    if NLMsgHdr(data).type == NLMSG_ERROR:
+    if netlink.NLMsgHdr(data).type == netlink.NLMSG_ERROR:
       self._ParseAck(data)
     routes = self._GetMsgList(RTMsg, data, False)
     return routes
+
+  def DumpRoutes(self, version, ifindex):
+    rtmsg = RTMsg(family=self._AddressFamily(version))
+    return [(m, r) for (m, r) in self._Dump(RTM_GETROUTE, rtmsg, RTMsg, "")
+            if r['RTA_TABLE'] == ifindex]
 
   def _Neighbour(self, version, is_add, addr, lladdr, dev, state, flags=0):
     """Adds or deletes a neighbour cache entry."""
@@ -531,7 +595,7 @@ class IPRoute(netlink.NetlinkSocket):
 
   def UpdateNeighbour(self, version, addr, lladdr, dev, state):
     self._Neighbour(version, True, addr, lladdr, dev, state,
-                    flags=NLM_F_REPLACE)
+                    flags=netlink.NLM_F_REPLACE)
 
   def DumpNeighbours(self, version):
     ndmsg = NdMsg((self._AddressFamily(version), 0, 0, 0, 0))
@@ -540,6 +604,73 @@ class IPRoute(netlink.NetlinkSocket):
   def ParseNeighbourMessage(self, msg):
     msg, _ = self._ParseNLMsg(msg, NdMsg)
     return msg
+
+  def DeleteLink(self, dev_name):
+    ifinfo = IfinfoMsg().Pack()
+    ifinfo += self._NlAttrStr(IFLA_IFNAME, dev_name)
+    flags = netlink.NLM_F_REQUEST | netlink.NLM_F_ACK
+    return self._SendNlRequest(RTM_DELLINK, ifinfo, flags)
+
+  def GetIfIndex(self, dev_name):
+    ifinfo = IfinfoMsg().Pack()
+    ifinfo += self._NlAttrStr(IFLA_IFNAME, dev_name)
+    self._SendNlRequest(RTM_GETLINK, ifinfo, netlink.NLM_F_REQUEST)
+    hdr, data = cstruct.Read(self._Recv(), netlink.NLMsgHdr)
+    if hdr.type == RTM_NEWLINK:
+      return IfinfoMsg(data).index
+    elif hdr.type == netlink.NLMSG_ERROR:
+      error = netlink.NLMsgErr(data).error
+      raise IOError(error, os.strerror(-error))
+    else:
+      raise ValueError("Unknown Netlink Message Type %d" % hdr.type)
+
+  def CreateVirtualTunnelInterface(self, dev_name, local_addr, remote_addr,
+                                   i_key=None, o_key=None):
+    """
+    Create a Virtual Tunnel Interface that provides a proxy interface
+    for IPsec tunnels.
+
+    The VTI Newlink structure is a series of nested netlink
+    attributes following a mostly-ignored 'struct ifinfomsg':
+
+    NLMSGHDR (type=RTM_NEWLINK)
+    |
+    |-{IfinfoMsg}
+    |
+    |-IFLA_IFNAME = <user-provided ifname>
+    |
+    |-IFLA_LINKINFO
+      |
+      |-IFLA_INFO_KIND = "vti"
+      |
+      |-IFLA_INFO_DATA
+        |
+        |-IFLA_VTI_LOCAL = <local addr>
+        |-IFLA_VTI_REMOTE = <remote addr>
+        |-IFLA_VTI_LINK = ????
+        |-IFLA_VTI_OKEY = [outbound mark]
+        |-IFLA_VTI_IKEY = [inbound mark]
+    """
+    family = AF_INET6 if ":" in remote_addr else AF_INET
+
+    ifinfo = IfinfoMsg().Pack()
+    ifinfo += self._NlAttrStr(IFLA_IFNAME, dev_name)
+
+    linkinfo = self._NlAttrStr(IFLA_INFO_KIND,
+        {AF_INET6: "vti6", AF_INET: "vti"}[family])
+
+    ifdata = self._NlAttrIPAddress(IFLA_VTI_LOCAL, family, local_addr)
+    ifdata += self._NlAttrIPAddress(IFLA_VTI_REMOTE, family,
+                                    remote_addr)
+    if i_key is not None:
+      ifdata += self._NlAttrU32(IFLA_VTI_IKEY, socket.htonl(i_key))
+    if o_key is not None:
+      ifdata += self._NlAttrU32(IFLA_VTI_OKEY, socket.htonl(o_key))
+    linkinfo += self._NlAttr(IFLA_INFO_DATA, ifdata)
+
+    ifinfo += self._NlAttr(IFLA_LINKINFO, linkinfo)
+
+    return self._SendNlRequest(RTM_NEWLINK, ifinfo)
 
 
 if __name__ == "__main__":
