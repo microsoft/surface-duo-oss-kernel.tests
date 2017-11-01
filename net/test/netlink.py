@@ -141,11 +141,17 @@ class NetlinkSocket(object):
 
     return attributes
 
+  def _OpenNetlinkSocket(self, family, groups=None):
+    sock = socket.socket(socket.AF_NETLINK, socket.SOCK_RAW, family)
+    if groups:
+      sock.bind((0,  groups))
+    sock.connect((0, 0))  # The kernel.
+    return sock
+
   def __init__(self, family):
     # Global sequence number.
     self.seq = 0
-    self.sock = socket.socket(socket.AF_NETLINK, socket.SOCK_RAW, family)
-    self.sock.connect((0, 0))  # The kernel.
+    self.sock = self._OpenNetlinkSocket(family)
     self.pid = self.sock.getsockname()[1]
 
   def MaybeDebugCommand(self, command, flags, data):

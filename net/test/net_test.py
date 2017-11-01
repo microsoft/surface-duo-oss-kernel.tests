@@ -99,12 +99,6 @@ def GetAddressFamily(version):
 def AddressLengthBits(version):
   return {4: 32, 6: 128}[version]
 
-def SetSocketTimeout(sock, ms):
-  s = ms / 1000
-  us = (ms % 1000) * 1000
-  sock.setsockopt(SOL_SOCKET, SO_RCVTIMEO, struct.pack("LL", s, us))
-
-
 def SetSocketTos(s, tos):
   level = {AF_INET: SOL_IP, AF_INET6: SOL_IPV6}[s.family]
   option = {AF_INET: IP_TOS, AF_INET6: IPV6_TCLASS}[s.family]
@@ -119,7 +113,7 @@ def SetNonBlocking(fd):
 # Convenience functions to create sockets.
 def Socket(family, sock_type, protocol):
   s = socket(family, sock_type, protocol)
-  SetSocketTimeout(s, 5000)
+  csocket.SetSocketTimeout(s, 5000)
   return s
 
 

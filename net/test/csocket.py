@@ -74,7 +74,8 @@ SO_ORIGIN_ICMP6 = 3
 libc = ctypes.CDLL(ctypes.util.find_library("c"), use_errno=True)
 
 
-# TODO: Move this to a utils.py or constants.py file, once we have one.
+# TODO: Unlike most of this file, these functions aren't specific to wrapping C
+# library calls. Move them to a utils.py or constants.py file, once we have one.
 def LinuxVersion():
   # Example: "3.4.67-00753-gb7a556f".
   # Get the part before the dash.
@@ -83,6 +84,13 @@ def LinuxVersion():
   # using < and >, since tuples are compared lexicographically.
   version = tuple(int(i) for i in version.split("."))
   return version
+
+
+def SetSocketTimeout(sock, ms):
+  s = ms / 1000
+  us = (ms % 1000) * 1000
+  sock.setsockopt(socket.SOL_SOCKET, socket.SO_RCVTIMEO,
+                  struct.pack("LL", s, us))
 
 
 def VoidPointer(s):
