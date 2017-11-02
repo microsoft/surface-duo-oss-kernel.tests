@@ -173,6 +173,9 @@ class XfrmBaseTest(multinetwork_base.MultiNetworkBaseTest):
       length: length of the packet's payload or None to skip this check
       src_addr: source address of the packet or None to skip this check
       dst_addr: destination address of the packet or None to skip this check
+
+    Returns:
+      scapy.IP/IPv6: the read packet
     """
     packets = self.ReadAllPacketsOn(netid)
     self.assertEquals(1, len(packets))
@@ -186,3 +189,4 @@ class XfrmBaseTest(multinetwork_base.MultiNetworkBaseTest):
     # extract the ESP header
     esp_hdr, _ = cstruct.Read(str(packet.payload), xfrm.EspHdr)
     self.assertEquals(xfrm.EspHdr((spi, seq)), esp_hdr)
+    return packet

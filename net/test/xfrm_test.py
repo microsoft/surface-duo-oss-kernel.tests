@@ -167,7 +167,11 @@ class XfrmFunctionalTest(xfrm_base.XfrmBaseTest):
         EAGAIN,
         s.sendto, net_test.UDP_PAYLOAD, (TEST_ADDR1, 53))
 
-
+  # TODO: Should we completely re-write this using null encryption and null
+  # authentication? We could then assemble and disassemble packets for each
+  # direction individually. This approach would improve debuggability, avoid the
+  # complexity of the twister, and allow the test to more-closely validate
+  # deployable configurations.
   def testUdpEncapWithSocketPolicy(self):
     # TODO: test IPv6 instead of IPv4.
     netid = self.RandomNetid()

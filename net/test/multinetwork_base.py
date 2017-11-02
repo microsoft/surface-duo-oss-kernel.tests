@@ -488,6 +488,13 @@ class MultiNetworkBaseTest(net_test.NetworkTest):
     self.ReceiveEtherPacketOn(netid, packet)
 
   def ReadAllPacketsOn(self, netid, include_multicast=False):
+    """Return all queued packets on a netid as a list.
+
+    Args:
+      netid: The netid from which to read packets
+      include_multicast: A boolean, whether to remove multicast packets
+        (default=False)
+    """
     packets = []
     retries = 0
     max_retries = 1
