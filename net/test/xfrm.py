@@ -335,8 +335,8 @@ class Xfrm(netlink.NetlinkSocket):
   def AddMinimalSaInfo(self, src, dst, spi, proto, mode, reqid,
                        encryption, encryption_key,
                        auth_trunc, auth_trunc_key, encap,
-                       mark, mark_mask, output_mark):
-    selector = XfrmSelector("\x00" * len(XfrmSelector))
+                       mark, mark_mask, output_mark, sel_family=AF_UNSPEC):
+    selector = XfrmSelector(family=sel_family)
     xfrm_id = XfrmId((PaddedAddress(dst), spi, proto))
     family = AF_INET6 if ":" in dst else AF_INET
     nlattrs = self._NlAttr(XFRMA_ALG_CRYPT,
