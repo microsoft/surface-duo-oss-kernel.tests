@@ -46,6 +46,7 @@ TEST_SPI = 0x1234
 ALGO_CBC_AES_256 = xfrm.XfrmAlgo(("cbc(aes)", 256))
 ALGO_HMAC_SHA1 = xfrm.XfrmAlgoAuth(("hmac(sha1)", 128, 96))
 
+
 class XfrmFunctionalTest(xfrm_base.XfrmBaseTest):
 
   def assertIsUdpEncapEsp(self, packet, spi, seq, length):
@@ -319,6 +320,40 @@ class XfrmFunctionalTest(xfrm_base.XfrmBaseTest):
         spi = ntohl(new_sa.id.spi)
         self.assertNotIn(spi, spis)
         spis.add(spi)
+
+  def testSocketPolicyDstCacheV6(self):
+    self._TestSocketPolicyDstCache(6)
+
+  def testSocketPolicyDstCacheV4(self):
+    self._TestSocketPolicyDstCache(4)
+
+  def _TestSocketPolicyDstCache(self, version):
+    """Test that destination cache is cleared with socket policy.
+
+    This relies on the fact that connect() on a UDP socket populates the
+    destination cache.
+    """
+
+    # Create UDP socket.
+    family = net_test.GetAddressFamily(version)
+    netid = self.RandomNetid()
+    s = socket(family, SOCK_DGRAM, 0)
+    self.SelectInterface(s, netid, "mark")
+
+    # Populate the socket's destination cache.
+    remote = self.GetRemoteAddress(version)
+    s.connect((remote, 53))
+
+    # Apply a policy to the socket. Should clear dst cache.
+    reqid = 123
+    xfrm_base.ApplySocketPolicy(s, family, xfrm.XFRM_POLICY_OUT,
+                                htonl(TEST_SPI), reqid, None)
+
+    # Policy with no matching SA should result in EAGAIN. If destination cache
+    # failed to clear, then the UDP packet will be sent normally.
+    with self.assertRaisesErrno(EAGAIN):
+      s.send(net_test.UDP_PAYLOAD)
+    self.ExpectNoPacketsOn(netid, "Packet not blocked by policy")
 
 
 class XfrmOutputMarkTest(xfrm_base.XfrmBaseTest):
