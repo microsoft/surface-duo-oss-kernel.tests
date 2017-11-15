@@ -29,6 +29,7 @@ import cstruct
 NETLINK_ROUTE = 0
 NETLINK_SOCK_DIAG = 4
 NETLINK_XFRM = 6
+NETLINK_GENERIC = 16
 
 # Request constants.
 NLM_F_REQUEST = 1
@@ -101,6 +102,17 @@ class NetlinkSocket(object):
     """No-op, nonspecific version of decode."""
     return nla_type, nla_data
 
+  def _ReadNlAttr(self, data):
+    # Read the nlattr header.
+    nla, data = cstruct.Read(data, NLAttr)
+
+    # Read the data.
+    datalen = nla.nla_len - len(nla)
+    padded_len = PaddedLength(nla.nla_len) - len(nla)
+    nla_data, data = data[:datalen], data[padded_len:]
+
+    return nla, nla_data, data
+
   def _ParseAttributes(self, command, msg, data):
     """Parses and decodes netlink attributes.
 
@@ -120,13 +132,7 @@ class NetlinkSocket(object):
     """
     attributes = {}
     while data:
-      # Read the nlattr header.
-      nla, data = cstruct.Read(data, NLAttr)
-
-      # Read the data.
-      datalen = nla.nla_len - len(nla)
-      padded_len = PaddedLength(nla.nla_len) - len(nla)
-      nla_data, data = data[:datalen], data[padded_len:]
+      nla, nla_data, data = self._ReadNlAttr(data)
 
       # If it's an attribute we know about, try to decode it.
       nla_name, nla_data = self._Decode(command, msg, nla.nla_type, nla_data)
