@@ -99,6 +99,13 @@ def GetAddressFamily(version):
 def AddressLengthBits(version):
   return {4: 32, 6: 128}[version]
 
+def GetAddressVersion(address):
+  if ":" not in address:
+    return 4
+  if address.startswith("::ffff"):
+    return 5
+  return 6
+
 def SetSocketTos(s, tos):
   level = {AF_INET: SOL_IP, AF_INET6: SOL_IPV6}[s.family]
   option = {AF_INET: IP_TOS, AF_INET6: IPV6_TCLASS}[s.family]
