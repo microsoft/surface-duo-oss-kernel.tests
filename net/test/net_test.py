@@ -200,14 +200,14 @@ def CreateSocketPair(family, socktype, addr):
 
 
 def GetInterfaceIndex(ifname):
-  s = IPv4PingSocket()
+  s = UDPSocket(AF_INET)
   ifr = struct.pack("%dsi" % IFNAMSIZ, ifname, 0)
   ifr = fcntl.ioctl(s, scapy.SIOCGIFINDEX, ifr)
   return struct.unpack("%dsi" % IFNAMSIZ, ifr)[1]
 
 
 def SetInterfaceHWAddr(ifname, hwaddr):
-  s = IPv4PingSocket()
+  s = UDPSocket(AF_INET)
   hwaddr = hwaddr.replace(":", "")
   hwaddr = hwaddr.decode("hex")
   if len(hwaddr) != 6:
@@ -217,7 +217,7 @@ def SetInterfaceHWAddr(ifname, hwaddr):
 
 
 def SetInterfaceState(ifname, up):
-  s = IPv4PingSocket()
+  s = UDPSocket(AF_INET)
   ifr = struct.pack("%dsH" % IFNAMSIZ, ifname, 0)
   ifr = fcntl.ioctl(s, scapy.SIOCGIFFLAGS, ifr)
   _, flags = struct.unpack("%dsH" % IFNAMSIZ, ifr)
