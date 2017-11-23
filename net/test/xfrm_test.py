@@ -631,14 +631,14 @@ class XfrmFunctionalTest(xfrm_base.XfrmLazyTest):
       self.assertEquals(attributes['XFRMA_TMPL'], tmpl)
 
     # Create a new policy using update.
-    self.xfrm.UpdatePolicyInfo(policy, tmpl1, mark)
+    self.xfrm.UpdatePolicyInfo(policy, tmpl1, mark, None)
     # NEWPOLICY will not update the existing policy. This checks both that
     # UPDPOLICY created a policy and that NEWPOLICY will not perform updates.
     _CheckTemplateMatch(tmpl1)
     with self.assertRaisesErrno(EEXIST):
-      self.xfrm.AddPolicyInfo(policy, tmpl2, mark)
+      self.xfrm.AddPolicyInfo(policy, tmpl2, mark, None)
     # Update the policy using UPDPOLICY.
-    self.xfrm.UpdatePolicyInfo(policy, tmpl2, mark)
+    self.xfrm.UpdatePolicyInfo(policy, tmpl2, mark, None)
     # There should only be one policy after update, and it should have the
     # updated template.
     _CheckTemplateMatch(tmpl2)
