@@ -487,7 +487,7 @@ class IPRoute(netlink.NetlinkSocket):
       AssertionError: An IPv6 address was requested, and it did not appear
         within the timeout.
     """
-    version = 6 if ":" in address else 4
+    version = csocket.AddressVersion(address)
 
     flags = IFA_F_PERMANENT
     if version == 6:
@@ -502,7 +502,7 @@ class IPRoute(netlink.NetlinkSocket):
       self._WaitForAddress(sock, address, ifindex)
 
   def DelAddress(self, address, prefixlen, ifindex):
-    self._Address(6 if ":" in address else 4,
+    self._Address(csocket.AddressVersion(address),
                   RTM_DELADDR, address, prefixlen, 0, 0, ifindex)
 
   def GetAddress(self, address, ifindex=0):
@@ -553,7 +553,7 @@ class IPRoute(netlink.NetlinkSocket):
                 nexthop, dev, None, None)
 
   def GetRoutes(self, dest, oif, mark, uid, iif=None):
-    version = 6 if ":" in dest else 4
+    version = csocket.AddressVersion(dest)
     prefixlen = {4: 32, 6: 128}[version]
     self._Route(version, RTPROT_STATIC, RTM_GETROUTE, 0, dest, prefixlen, None,
                 oif, mark, uid, iif=iif)
