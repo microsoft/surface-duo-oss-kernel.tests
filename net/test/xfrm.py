@@ -243,6 +243,8 @@ class Xfrm(netlink.NetlinkSocket):
       struct_type = XfrmUsersaId
     elif command == XFRM_MSG_ALLOCSPI:
       struct_type = XfrmUserSpiInfo
+    elif command == XFRM_MSG_NEWPOLICY:
+      struct_type = XfrmUserpolicyInfo
     else:
       struct_type = None
 
