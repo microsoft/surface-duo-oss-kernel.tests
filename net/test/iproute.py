@@ -117,6 +117,13 @@ IFA_F_DEPRECATED = 0x20
 IFA_F_TENTATIVE = 0x40
 IFA_F_PERMANENT = 0x80
 
+_LINK_STATS_MEMBERS = (
+    "rx_packets tx_packets rx_bytes tx_bytes rx_errors tx_errors "
+    "rx_dropped tx_dropped multicast collisions "
+    "rx_length_errors rx_over_errors rx_crc_errors rx_frame_errors "
+    "rx_fifo_errors rx_missed_errors tx_aborted_errors tx_carrier_errors "
+    "tx_fifo_errors tx_heartbeat_errors tx_window_errors "
+    "rx_compressed tx_compressed rx_nohandler")
 # Data structure formats.
 IfAddrMsg = cstruct.Struct(
     "IfAddrMsg", "=BBBBI",
@@ -125,7 +132,10 @@ IFACacheinfo = cstruct.Struct(
     "IFACacheinfo", "=IIII", "prefered valid cstamp tstamp")
 NDACacheinfo = cstruct.Struct(
     "NDACacheinfo", "=IIII", "confirmed used updated refcnt")
-
+RtnlLinkStats = cstruct.Struct(
+    "RtnlLinkStats", "=IIIIIIIIIIIIIIIIIIIIIIII", _LINK_STATS_MEMBERS)
+RtnlLinkStats64 = cstruct.Struct(
+    "RtnlLinkStats64", "=QQQQQQQQQQQQQQQQQQQQQQQQ", _LINK_STATS_MEMBERS)
 
 ### Neighbour table entry constants. See include/uapi/linux/neighbour.h.
 # Neighbour cache entry attributes.
@@ -186,7 +196,13 @@ IFLA_PROMISCUITY = 30
 IFLA_NUM_TX_QUEUES = 31
 IFLA_NUM_RX_QUEUES = 32
 IFLA_CARRIER = 33
+IFLA_CARRIER_CHANGES = 35
+IFLA_PROTO_DOWN = 39
+IFLA_GSO_MAX_SEGS = 40
+IFLA_GSO_MAX_SIZE = 41
 IFLA_PAD = 42
+IFLA_XDP = 43
+IFLA_EVENT = 44
 
 # linux/include/uapi/if_link.h
 IFLA_INFO_UNSPEC = 0
@@ -281,7 +297,8 @@ class IPRoute(netlink.NetlinkSocket):
                 "IFLA_MTU", "IFLA_TXQLEN", "IFLA_GROUP", "IFLA_EXT_MASK",
                 "IFLA_PROMISCUITY", "IFLA_NUM_RX_QUEUES",
                 "IFLA_NUM_TX_QUEUES", "NDA_PROBES", "RTAX_MTU",
-                "RTAX_HOPLIMIT"]:
+                "RTAX_HOPLIMIT", "IFLA_CARRIER_CHANGES", "IFLA_GSO_MAX_SEGS",
+                "IFLA_GSO_MAX_SIZE"]:
       data = struct.unpack("=I", nla_data)[0]
     elif name == "FRA_SUPPRESS_PREFIXLEN":
       data = struct.unpack("=i", nla_data)[0]
@@ -304,10 +321,14 @@ class IPRoute(netlink.NetlinkSocket):
       data = IFACacheinfo(nla_data)
     elif name == "NDA_CACHEINFO":
       data = NDACacheinfo(nla_data)
-    elif name in ["NDA_LLADDR", "IFLA_ADDRESS"]:
+    elif name in ["NDA_LLADDR", "IFLA_ADDRESS", "IFLA_BROADCAST"]:
       data = ":".join(x.encode("hex") for x in nla_data)
     elif name == "FRA_UID_RANGE":
       data = FibRuleUidRange(nla_data)
+    elif name == "IFLA_STATS":
+      data = RtnlLinkStats(nla_data)
+    elif name == "IFLA_STATS64":
+      data = RtnlLinkStats64(nla_data)
     else:
       data = nla_data
 
