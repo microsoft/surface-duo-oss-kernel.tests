@@ -112,9 +112,12 @@ XFRM_MODE_MAX = 5
 XFRM_POLICY_ALLOW = 0
 XFRM_POLICY_BLOCK = 1
 
-# Flags.
+# Policy flags.
 XFRM_POLICY_LOCALOK = 1
 XFRM_POLICY_ICMP = 2
+
+# State flags.
+XFRM_STATE_AF_UNSPEC = 32
 
 # XFRM algorithm names, as defined in net/xfrm/xfrm_algo.c.
 XFRM_EALG_CBC_AES = "cbc(aes)"
@@ -350,8 +353,8 @@ class Xfrm(netlink.NetlinkSocket):
       msg += self._NlAttr(attr_type, attr_msg.Pack())
     return self._SendNlRequest(msg_type, msg, flags)
 
-  def AddSaInfo(self, src, dst, spi, mode, reqid, selector, encryption,
-                auth_trunc, encap, mark, output_mark):
+  def AddSaInfo(self, src, dst, spi, mode, reqid, encryption, auth_trunc, encap,
+                mark, output_mark):
     """Adds an IPsec security association.
 
     Args:
@@ -361,9 +364,6 @@ class Xfrm(netlink.NetlinkSocket):
       spi: An integer, the SPI.
       mode: An IPsec mode such as XFRM_MODE_TRANSPORT.
       reqid: A request ID. Can be used in policies to match the SA.
-      selector: An XfrmSelector (e.g., as returned by EmptySelector or
-        SrcDstSelector). Decides which packets will be transformed. If None,
-        matches all packets.
       encryption: A tuple of an XfrmAlgo and raw key bytes, or None.
       auth_trunc: A tuple of an XfrmAlgoAuth and raw key bytes, or None.
       encap: An XfrmEncapTmpl structure, or None.
@@ -374,9 +374,6 @@ class Xfrm(netlink.NetlinkSocket):
     proto = IPPROTO_ESP
     xfrm_id = XfrmId((PaddedAddress(dst), spi, proto))
     family = AF_INET6 if ":" in dst else AF_INET
-
-    if selector is None:
-      selector = EmptySelector(AF_UNSPEC)
 
     nlattrs = ""
     if encryption is not None:
@@ -400,7 +397,24 @@ class Xfrm(netlink.NetlinkSocket):
     stats = XfrmStats()
     seq = 0
     replay = _DEFAULT_REPLAY_WINDOW
-    flags = 0
+
+    # The XFRM_STATE_AF_UNSPEC flag determines how AF_UNSPEC selectors behave.
+    #
+    # - If the flag is not set, an AF_UNSPEC selector has its family changed to
+    #   the SA family, which in our case is the address family of dst.
+    # - If the flag is set, an AF_UNSPEC selector is left as is. In transport
+    #   mode this fails with EPROTONOSUPPORT, but in tunnel mode, it results in
+    #   a dual-stack SA that can tunnel both IPv4 and IPv6 packets.
+    #
+    # This allows us to pass an empty selector to the kernel regardless of which
+    # mode we're in: when creating transport mode SAs, the kernel will pick the
+    # selector family based on the SA family, and when creating tunnel mode SAs,
+    # we'll just create SAs that select both IPv4 and IPv6 traffic, and leave it
+    # up to the policy selectors to determine what traffic we actually want to
+    # transform.
+    flags = XFRM_STATE_AF_UNSPEC if mode == XFRM_MODE_TUNNEL else 0
+    selector = EmptySelector(AF_UNSPEC)
+
     sa = XfrmUsersaInfo((selector, xfrm_id, PaddedAddress(src), NO_LIFETIME_CFG,
                          cur, stats, seq, reqid, family, mode, replay, flags))
     msg = sa.Pack() + nlattrs
