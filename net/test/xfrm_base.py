@@ -15,6 +15,8 @@
 # limitations under the License.
 
 from socket import *  # pylint: disable=wildcard-import
+from scapy import all as scapy
+import struct
 
 import cstruct
 import multinetwork_base
@@ -25,7 +27,9 @@ _ENCRYPTION_KEY_256 = ("308146eb3bd84b044573d60f5a5fd159"
                        "57c7d4fe567a2120f35bae0f9869ec22".decode("hex"))
 _AUTHENTICATION_KEY_128 = "af442892cdcd0ef650e9c299f9a8436a".decode("hex")
 
+_ALGO_AUTH_NULL = xfrm.XfrmAlgoAuth(("digest_null", 0, 0))
 _ALGO_CBC_AES_256 = xfrm.XfrmAlgo(("cbc(aes)", 256))
+_ALGO_CRYPT_NULL = xfrm.XfrmAlgo(("ecb(cipher_null)", 0))
 _ALGO_HMAC_SHA1 = xfrm.XfrmAlgoAuth(("hmac(sha1)", 128, 96))
 
 # Match all bits of the mark
@@ -143,6 +147,97 @@ def GetEspPacketLength(mode, version, encap, payload):
     raise NotImplementedError(
       "Unsupported combination mode=%s encap=%s version=%s" %
       (mode, encap, version))
+
+
+def EncryptPacketWithNull(packet, spi, seq):
+  """Apply null encryption to a packet.
+
+  This modifies the given packet to perform transport mode ESP encapsulation.
+
+  The input packet is assumed to be a UDP packet. The input packet *MUST* have
+  its length and checksum fields in IP and UDP headers set appropriately. This
+  can be done by "rebuilding" the scapy object. e.g.,
+      ip6_packet = scapy.IPv6(str(ip6_packet))
+
+  TODO: Support tunnel mode
+  TODO: Support TCP
+
+  Args:
+    packet: a scapy.IPv6 or scapy.IP packet
+    spi: security parameter index for ESP header
+    seq: sequence number for ESP header
+  """
+  udp_layer = packet.getlayer(scapy.UDP)
+  if not udp_layer:
+    raise ValueError("Expected a UDP packet")
+  # Build an ESP header.
+  esp_hdr = scapy.Raw(xfrm.EspHdr((spi, seq)).Pack())
+
+  # ESP padding per RFC 4303 section 2.4.
+  # For a null cipher with a block size of 1, padding is only necessary to
+  # ensure that the 1-byte Pad Length and Next Header fields are right aligned
+  # on a 4-byte boundary.
+  esplen = (len(udp_layer) + 2)  # UDP length plus Pad Length and Next Header.
+  padlen = (4 - esplen) % 4
+  # The pad bytes are consecutive integers starting from 0x01.
+  padding = "".join((chr(i) for i in xrange(1, padlen + 1)))
+  trailer = padding + struct.pack("BB", padlen, IPPROTO_UDP)
+
+  # Assemble the packet.
+  esp_hdr.payload = udp_layer
+  packet.payload = esp_hdr
+  packet.add_payload(trailer)
+
+  # Fix the IPv4/IPv6 headers.
+  if type(packet) is scapy.IPv6:
+    packet.nh = IPPROTO_ESP
+    packet.plen += len(trailer) + len(xfrm.EspHdr)
+  elif type(packet) is scapy.IP:
+    packet.proto = IPPROTO_ESP
+    packet.len += len(trailer) + len(xfrm.EspHdr)
+    # Recompute IPv4 checksum.
+    packet.chksum = None
+    packet2 = scapy.IP(str(packet))
+    packet.chksum = packet2.chksum
+  else:
+    raise ValueError("First layer in packet should be IPv4 or IPv6: " + repr(packet))
+
+
+def DecryptPacketWithNull(packet):
+  """Apply null decryption to a packet.
+
+  This modifies the given packet to perform ESP decapsulation.
+
+  The input packet is assumed to be a UDP packet. This function will remove the
+  ESP header and trailer bytes from an ESP packet.
+
+  TODO: Support tunnel mode
+  TODO: Support TCP
+
+  Args:
+    packet: a scapy.IPv6 or scapy.IP packet
+
+  Returns:
+    The EspHdr that was removed from the packet
+  """
+  esp_layer = packet.payload
+  esp_hdr, udp_data = cstruct.Read(str(esp_layer), xfrm.EspHdr)
+  udp_layer = scapy.UDP(udp_data)
+  trailer = udp_layer.getlayer(scapy.Padding)
+  # Cut out the ESP header.
+  packet.payload = udp_layer
+  # Drop the trailer.
+  packet.getlayer(scapy.UDP).payload.remove_payload()
+  # Fix the IPv4/IPv6 headers.
+  if type(packet) is scapy.IPv6:
+    packet.nh = IPPROTO_UDP
+    packet.plen -= (len(trailer) + len(xfrm.EspHdr))
+  elif type(packet) is scapy.IP:
+    packet.proto = IPPROTO_UDP
+    packet.len -= (len(trailer) + len(xfrm.EspHdr))
+  else:
+    raise ValueError("First layer in packet should be IPv4 or IPv6: " + repr(packet))
+  return esp_hdr
 
 
 class XfrmBaseTest(multinetwork_base.MultiNetworkBaseTest):
