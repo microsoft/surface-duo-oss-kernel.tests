@@ -116,14 +116,6 @@ class XfrmFunctionalTest(xfrm_base.XfrmBaseTest):
     xfrm_base.ApplySocketPolicy(s, AF_INET6, xfrm.XFRM_POLICY_OUT,
                                 htonl(TEST_SPI), reqid, None)
 
-    # Invalidate destination cache entries, so that future sends on the socket
-    # use the socket policy we've just applied instead of being sent in the
-    # clear due to the previously-cached dst cache entry.
-    #
-    # TODO: fix this problem in the kernel, as this workaround cannot be used in
-    # on-device code.
-    self.InvalidateDstCache(6, netid)
-
     # Because the policy has level set to "require" (the default), attempting
     # to send a packet results in an error, because there is no SA that
     # matches the socket policy we set.
