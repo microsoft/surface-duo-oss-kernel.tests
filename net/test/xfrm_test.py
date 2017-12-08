@@ -55,13 +55,12 @@ class XfrmFunctionalTest(xfrm_base.XfrmBaseTest):
     esp_hdr, _ = cstruct.Read(str(udp_hdr.load), xfrm.EspHdr)
     # FIXME: this file currently swaps SPI byte order manually, so SPI needs to
     # be double-swapped here.
-    self.assertEquals(xfrm.EspHdr((ntohl(spi), seq)), esp_hdr)
+    self.assertEquals(xfrm.EspHdr((spi, seq)), esp_hdr)
 
   def testAddSa(self):
-    self.xfrm.AddSaInfo("::", TEST_ADDR1, htonl(TEST_SPI),
-                        xfrm.XFRM_MODE_TRANSPORT, 3320,
-                        xfrm_base._ALGO_CBC_AES_256, xfrm_base._ALGO_HMAC_SHA1,
-                        None, None, None)
+    self.xfrm.AddSaInfo("::", TEST_ADDR1, TEST_SPI, xfrm.XFRM_MODE_TRANSPORT,
+                        3320, xfrm_base._ALGO_CBC_AES_256,
+                        xfrm_base._ALGO_HMAC_SHA1, None, None, None)
     expected = (
         "src :: dst 2001:4860:4860::8888\n"
         "\tproto esp spi 0x00001234 reqid 3320 mode transport\n"
@@ -76,15 +75,14 @@ class XfrmFunctionalTest(xfrm_base.XfrmBaseTest):
     try:
       self.assertMultiLineEqual(expected, actual)
     finally:
-      self.xfrm.DeleteSaInfo(TEST_ADDR1, htonl(TEST_SPI), IPPROTO_ESP)
+      self.xfrm.DeleteSaInfo(TEST_ADDR1, TEST_SPI, IPPROTO_ESP)
 
   def testFlush(self):
     self.assertEquals(0, len(self.xfrm.DumpSaInfo()))
-    self.xfrm.AddSaInfo("::", "2000::", htonl(TEST_SPI),
-                        xfrm.XFRM_MODE_TRANSPORT, 1234,
-                        xfrm_base._ALGO_CBC_AES_256, xfrm_base._ALGO_HMAC_SHA1,
-                        None, None, None)
-    self.xfrm.AddSaInfo("0.0.0.0", "192.0.2.1", htonl(TEST_SPI),
+    self.xfrm.AddSaInfo("::", "2000::", TEST_SPI, xfrm.XFRM_MODE_TRANSPORT,
+                        1234, xfrm_base._ALGO_CBC_AES_256,
+                        xfrm_base._ALGO_HMAC_SHA1, None, None, None)
+    self.xfrm.AddSaInfo("0.0.0.0", "192.0.2.1", TEST_SPI,
                         xfrm.XFRM_MODE_TRANSPORT, 4321,
                         xfrm_base._ALGO_CBC_AES_256, xfrm_base._ALGO_HMAC_SHA1,
                         None, None, None)
@@ -103,7 +101,7 @@ class XfrmFunctionalTest(xfrm_base.XfrmBaseTest):
     reqid = 0
 
     xfrm_base.ApplySocketPolicy(s, AF_INET6, xfrm.XFRM_POLICY_OUT,
-                                htonl(TEST_SPI), reqid, None)
+                                TEST_SPI, reqid, None)
 
     # Because the policy has level set to "require" (the default), attempting
     # to send a packet results in an error, because there is no SA that
@@ -116,7 +114,7 @@ class XfrmFunctionalTest(xfrm_base.XfrmBaseTest):
     # SPI must match the one in our template, and the destination address must
     # match the packet's destination address (in tunnel mode, it has to match
     # the tunnel destination).
-    self.xfrm.AddSaInfo("::", TEST_ADDR1, htonl(TEST_SPI),
+    self.xfrm.AddSaInfo("::", TEST_ADDR1, TEST_SPI,
                         xfrm.XFRM_MODE_TRANSPORT, reqid,
                         xfrm_base._ALGO_CBC_AES_256, xfrm_base._ALGO_HMAC_SHA1,
                         None, None, None)
@@ -141,7 +139,7 @@ class XfrmFunctionalTest(xfrm_base.XfrmBaseTest):
     self.assertEquals(IPPROTO_UDP, packet.nh)
 
     # Deleting the SA causes the first socket to return errors again.
-    self.xfrm.DeleteSaInfo(TEST_ADDR1, htonl(TEST_SPI), IPPROTO_ESP)
+    self.xfrm.DeleteSaInfo(TEST_ADDR1, TEST_SPI, IPPROTO_ESP)
     self.assertRaisesErrno(
         EAGAIN,
         s.sendto, net_test.UDP_PAYLOAD, (TEST_ADDR1, 53))
@@ -175,9 +173,9 @@ class XfrmFunctionalTest(xfrm_base.XfrmBaseTest):
     # Use the same SPI both inbound and outbound because this lets us receive
     # encrypted packets by simply replaying the packets the kernel sends.
     in_reqid = 123
-    in_spi = htonl(TEST_SPI)
+    in_spi = TEST_SPI
     out_reqid = 456
-    out_spi = htonl(TEST_SPI)
+    out_spi = TEST_SPI
 
     # Apply an outbound socket policy to s.
     xfrm_base.ApplySocketPolicy(s, AF_INET, xfrm.XFRM_POLICY_OUT,
@@ -230,7 +228,7 @@ class XfrmFunctionalTest(xfrm_base.XfrmBaseTest):
     # Save the payload of the packet so we can replay it back to ourselves, and
     # replace the SPI with our inbound SPI.
     payload = str(packet.payload)[8:]
-    spi_seq = struct.pack("!II", ntohl(in_spi), 1)
+    spi_seq = xfrm.EspHdr((in_spi, 1)).Pack()
     payload = spi_seq + payload[len(spi_seq):]
 
     # Tamper with the packet and check that it's dropped and counted as invalid.
@@ -259,20 +257,20 @@ class XfrmFunctionalTest(xfrm_base.XfrmBaseTest):
   def testAllocSpecificSpi(self):
     spi = 0xABCD
     new_sa = self.xfrm.AllocSpi("::", IPPROTO_ESP, spi, spi)
-    self.assertEquals(spi, ntohl(new_sa.id.spi))
+    self.assertEquals(spi, new_sa.id.spi)
 
   def testAllocSpecificSpiUnavailable(self):
     """Attempt to allocate the same SPI twice."""
     spi = 0xABCD
     new_sa = self.xfrm.AllocSpi("::", IPPROTO_ESP, spi, spi)
-    self.assertEquals(spi, ntohl(new_sa.id.spi))
+    self.assertEquals(spi, new_sa.id.spi)
     with self.assertRaisesErrno(ENOENT):
       new_sa = self.xfrm.AllocSpi("::", IPPROTO_ESP, spi, spi)
 
   def testAllocRangeSpi(self):
     start, end = 0xABCD0, 0xABCDF
     new_sa = self.xfrm.AllocSpi("::", IPPROTO_ESP, start, end)
-    spi = ntohl(new_sa.id.spi)
+    spi = new_sa.id.spi
     self.assertGreaterEqual(spi, start)
     self.assertLessEqual(spi, end)
 
@@ -288,7 +286,7 @@ class XfrmFunctionalTest(xfrm_base.XfrmBaseTest):
       # reaching that limit.
       for i in xrange(range_size + 1):
         new_sa = self.xfrm.AllocSpi("::", IPPROTO_ESP, start, end)
-        spi = ntohl(new_sa.id.spi)
+        spi = new_sa.id.spi
         self.assertNotIn(spi, spis)
         spis.add(spi)
 
@@ -318,7 +316,7 @@ class XfrmFunctionalTest(xfrm_base.XfrmBaseTest):
     # Apply a policy to the socket. Should clear dst cache.
     reqid = 123
     xfrm_base.ApplySocketPolicy(s, family, xfrm.XFRM_POLICY_OUT,
-                                htonl(TEST_SPI), reqid, None)
+                                TEST_SPI, reqid, None)
 
     # Policy with no matching SA should result in EAGAIN. If destination cache
     # failed to clear, then the UDP packet will be sent normally.
@@ -357,7 +355,7 @@ class XfrmFunctionalTest(xfrm_base.XfrmBaseTest):
                  scapy.UDP(sport=remote_port, dport=local_port) /
                  "input hello")
     input_pkt = IpType(str(input_pkt)) # Compute length, checksum.
-    xfrm_base.EncryptPacketWithNull(input_pkt, htonl(0x9876), 1)
+    xfrm_base.EncryptPacketWithNull(input_pkt, 0x9876, 1)
 
     self.ReceivePacketOn(netid, input_pkt)
     msg, addr = sock.recvfrom(1024)
@@ -373,7 +371,7 @@ class XfrmFunctionalTest(xfrm_base.XfrmBaseTest):
     self.assertEquals(remote_addr, output_pkt.dst)
     self.assertEquals(remote_port, output_pkt[scapy.UDP].dport)
     self.assertEquals("output hello", str(output_pkt[scapy.UDP].payload))
-    self.assertEquals(0xABCD, ntohl(esp_hdr.spi))
+    self.assertEquals(0xABCD, esp_hdr.spi)
 
   def testNullEncryptionV4(self):
     self.CheckNullEncryption(4)
@@ -410,7 +408,7 @@ class XfrmOutputMarkTest(xfrm_base.XfrmBaseTest):
     tun_addrs = (tunsrc, tundst)
 
     # Create a tunnel mode SA and use XFRM_OUTPUT_MARK to bind it to netid.
-    spi = htonl(TEST_SPI * mark)
+    spi = TEST_SPI * mark
     reqid = 100 + spi
     self.xfrm.AddSaInfo(tunsrc, tundst, spi, xfrm.XFRM_MODE_TUNNEL, reqid,
                         xfrm_base._ALGO_CBC_AES_256, xfrm_base._ALGO_HMAC_SHA1,
@@ -428,8 +426,7 @@ class XfrmOutputMarkTest(xfrm_base.XfrmBaseTest):
 
     if expected_netid is not None:
       s.sendto(net_test.UDP_PAYLOAD, (remoteaddr, 53))
-      self._ExpectEspPacketOn(expected_netid, htonl(spi), 1, packetlen, tunsrc,
-                              tundst)
+      self._ExpectEspPacketOn(expected_netid, spi, 1, packetlen, tunsrc, tundst)
     else:
       with self.assertRaisesErrno(ENETUNREACH):
         s.sendto(net_test.UDP_PAYLOAD, (remoteaddr, 53))

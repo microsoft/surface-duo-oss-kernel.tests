@@ -65,7 +65,7 @@ def UserTemplate(family, spi, reqid, tun_addrs):
   """Create an ESP policy and template.
 
   Args:
-    spi: 32-bit SPI in network byte order
+    spi: 32-bit SPI in host byte order
     reqid: 32-bit ID matched against SAs
     tun_addrs: A tuple of (local, remote) addresses for tunnel mode, or None
       to request a transport mode SA.
@@ -110,7 +110,7 @@ def ApplySocketPolicy(sock, family, direction, spi, reqid, tun_addrs):
     sock: The socket that needs a policy
     family: AF_INET or AF_INET6
     direction: XFRM_POLICY_IN or XFRM_POLICY_OUT
-    spi: 32-bit SPI in network byte order
+    spi: 32-bit SPI in host byte order
     reqid: 32-bit ID matched against SAs
     tun_addrs: A tuple of (local, remote) addresses for tunnel mode, or None
       to request a transport mode SA.
@@ -189,7 +189,7 @@ def EncryptPacketWithNull(packet, spi, seq):
 
   Args:
     packet: a scapy.IPv6 or scapy.IP packet
-    spi: security parameter index for ESP header
+    spi: security parameter index for ESP header in host byte order
     seq: sequence number for ESP header
   """
   udp_layer = packet.getlayer(scapy.UDP)
@@ -288,7 +288,7 @@ class XfrmBaseTest(multinetwork_base.MultiNetworkBaseTest):
 
     Args:
       netid: netid from which to read an ESP packet
-      spi: SPI of the ESP packet
+      spi: SPI of the ESP packet in host byte order
       seq: sequence number of the ESP packet
       length: length of the packet's payload or None to skip this check
       src_addr: source address of the packet or None to skip this check
