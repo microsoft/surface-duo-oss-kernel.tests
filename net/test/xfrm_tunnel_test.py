@@ -115,22 +115,14 @@ class XfrmTunnelTest(xfrm_base.XfrmBaseTest):
       output_mark: The mark used to select the underlying network for packets
         outbound from xfrm.
     """
-    self.xfrm.AddMinimalSaInfo(
-        tsrc_addr,
-        tdst_addr,
-        htonl(spi),
-        IPPROTO_ESP,
-        xfrm.XFRM_MODE_TUNNEL,
-        0,
+    self.xfrm.AddSaInfo(
+        tsrc_addr, tdst_addr,
+        htonl(spi), xfrm.XFRM_MODE_TUNNEL, 0, selector,
         xfrm_base._ALGO_CBC_AES_256,
-        xfrm_base._ENCRYPTION_KEY_256,
         xfrm_base._ALGO_HMAC_SHA1,
-        xfrm_base._AUTHENTICATION_KEY_128,
         None,
         mark,
-        xfrm_base.MARK_MASK_ALL if mark is not None else None,
-        output_mark,
-        selector=selector)
+        output_mark)
 
     policy = xfrm.XfrmUserpolicyInfo(
         sel=selector,
@@ -158,9 +150,7 @@ class XfrmTunnelTest(xfrm_base.XfrmBaseTest):
         ealgos=xfrm_base.ALL_ALGORITHMS,  # encryption algos
         calgos=xfrm_base.ALL_ALGORITHMS)  # compression algos
 
-    self.xfrm.AddPolicyInfo(policy, tmpl,
-                            xfrm.XfrmMark((mark, xfrm_base.MARK_MASK_ALL))
-                            if mark else None)
+    self.xfrm.AddPolicyInfo(policy, tmpl, mark)
 
   def _CheckTunnelOutput(self, inner_version, outer_version):
     """Test a bi-directional XFRM Tunnel with explicit selectors"""
@@ -182,7 +172,6 @@ class XfrmTunnelTest(xfrm_base.XfrmBaseTest):
         outer_family=net_test.GetAddressFamily(outer_version),
         tsrc_addr=local_outer,
         tdst_addr=remote_outer,
-        mark=None,
         spi=_TEST_OUT_SPI,
         output_mark=underlying_netid)
 
@@ -305,7 +294,7 @@ class XfrmTunnelTest(xfrm_base.XfrmBaseTest):
           outer_family=net_test.GetAddressFamily(outer_version),
           tsrc_addr=local_outer,
           tdst_addr=remote_outer,
-          mark=_TEST_OKEY,
+          mark=xfrm.ExactMatchMark(_TEST_OKEY),
           spi=_TEST_OUT_SPI,
           output_mark=netid)
 
@@ -315,8 +304,9 @@ class XfrmTunnelTest(xfrm_base.XfrmBaseTest):
           outer_family=net_test.GetAddressFamily(outer_version),
           tsrc_addr=remote_outer,
           tdst_addr=local_outer,
-          mark=_TEST_IKEY,
-          spi=_TEST_IN_SPI)
+          mark=xfrm.ExactMatchMark(_TEST_IKEY),
+          spi=_TEST_IN_SPI,
+          output_mark=netid)
 
       # Create a socket to receive packets.
       read_sock = socket(
