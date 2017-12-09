@@ -91,11 +91,7 @@ class XfrmTunnelTest(xfrm_base.XfrmBaseTest):
   # TODO: Take encryption and auth parameters.
   def _CreateXfrmTunnel(self,
                         direction,
-                        inner_family,
-                        src_addr,
-                        src_prefixlen,
-                        dst_addr,
-                        dst_prefixlen,
+                        selector,
                         outer_family,
                         tsrc_addr,
                         tdst_addr,
@@ -109,12 +105,7 @@ class XfrmTunnelTest(xfrm_base.XfrmBaseTest):
 
     Args:
       direction: XFRM_POLICY_IN or XFRM_POLICY_OUT
-      inner_family: The address family (AF_INET or AF_INET6) of the tunneled
-        packets
-      src_addr: The source address of the inner packets to be tunneled
-      src_prefixlen: The number of bits in src_addr to match
-      dst_addr: The destination address of the inner packets to be tunneled
-      dst_prefixlen: The number of bits in dst_addr to match
+      selector: An XfrmSelector that specifies the packets to be transformed.
       outer_family: The address family (AF_INET or AF_INET6) the tunnel
       tsrc_addr: The source address of the tunneled packets
       tdst_addr: The destination address of the tunneled packets
@@ -139,17 +130,10 @@ class XfrmTunnelTest(xfrm_base.XfrmBaseTest):
         mark,
         xfrm_base.MARK_MASK_ALL if mark is not None else None,
         output_mark,
-        sel_family=inner_family)
-
-    sel = xfrm.XfrmSelector(
-        daddr=xfrm.PaddedAddress(dst_addr),
-        saddr=xfrm.PaddedAddress(src_addr),
-        prefixlen_d=dst_prefixlen,
-        prefixlen_s=src_prefixlen,
-        family=inner_family)
+        selector=selector)
 
     policy = xfrm.XfrmUserpolicyInfo(
-        sel=sel,
+        sel=selector,
         lft=xfrm.NO_LIFETIME_CFG,
         curlft=xfrm.NO_LIFETIME_CUR,
         priority=100,
@@ -191,13 +175,10 @@ class XfrmTunnelTest(xfrm_base.XfrmBaseTest):
     remote_inner = self._GetRemoteInnerAddress(inner_version)
     local_outer = self.MyAddress(outer_version, underlying_netid)
     remote_outer = self._GetRemoteOuterAddress(outer_version)
+
     self._CreateXfrmTunnel(
         direction=xfrm.XFRM_POLICY_OUT,
-        inner_family=net_test.GetAddressFamily(inner_version),
-        src_addr=local_inner,
-        src_prefixlen=net_test.AddressLengthBits(inner_version),
-        dst_addr=remote_inner,
-        dst_prefixlen=net_test.AddressLengthBits(inner_version),
+        selector=xfrm.SrcDstSelector(local_inner, remote_inner),
         outer_family=net_test.GetAddressFamily(outer_version),
         tsrc_addr=local_outer,
         tdst_addr=remote_outer,
@@ -318,14 +299,9 @@ class XfrmTunnelTest(xfrm_base.XfrmBaseTest):
       # For the VTI, the selectors are wildcard since packets will only
       # be selected if they have the appropriate mark, hence the inner
       # addresses are wildcard.
-      inner_addr = net_test.GetWildcardAddress(inner_version)
       self._CreateXfrmTunnel(
           direction=xfrm.XFRM_POLICY_OUT,
-          inner_family=net_test.GetAddressFamily(inner_version),
-          src_addr=inner_addr,
-          src_prefixlen=0,
-          dst_addr=inner_addr,
-          dst_prefixlen=0,
+          selector=xfrm.EmptySelector(net_test.GetAddressFamily(inner_version)),
           outer_family=net_test.GetAddressFamily(outer_version),
           tsrc_addr=local_outer,
           tdst_addr=remote_outer,
@@ -335,11 +311,7 @@ class XfrmTunnelTest(xfrm_base.XfrmBaseTest):
 
       self._CreateXfrmTunnel(
           direction=xfrm.XFRM_POLICY_IN,
-          inner_family=net_test.GetAddressFamily(inner_version),
-          src_addr=inner_addr,
-          src_prefixlen=0,
-          dst_addr=inner_addr,
-          dst_prefixlen=0,
+          selector=xfrm.EmptySelector(net_test.GetAddressFamily(inner_version)),
           outer_family=net_test.GetAddressFamily(outer_version),
           tsrc_addr=remote_outer,
           tdst_addr=local_outer,
