@@ -92,7 +92,6 @@ class XfrmTunnelTest(xfrm_base.XfrmBaseTest):
   def _CreateXfrmTunnel(self,
                         direction,
                         selector,
-                        outer_family,
                         tsrc_addr,
                         tdst_addr,
                         spi,
@@ -106,7 +105,9 @@ class XfrmTunnelTest(xfrm_base.XfrmBaseTest):
     Args:
       direction: XFRM_POLICY_IN or XFRM_POLICY_OUT
       selector: An XfrmSelector that specifies the packets to be transformed.
-      outer_family: The address family (AF_INET or AF_INET6) the tunnel
+        This is only applied to the policy; the selector in the SA is always
+        empty. If the passed-in selector is None, then the tunnel is made
+        dual-stack. This requires two policies, one for IPv4 and one for IPv6.
       tsrc_addr: The source address of the tunneled packets
       tdst_addr: The destination address of the tunneled packets
       spi: The SPI for the IPsec SA that encapsulates the tunneled packet
@@ -115,19 +116,28 @@ class XfrmTunnelTest(xfrm_base.XfrmBaseTest):
       output_mark: The mark used to select the underlying network for packets
         outbound from xfrm.
     """
+    outer_family = net_test.GetAddressFamily(
+        net_test.GetAddressVersion(tdst_addr))
+
     self.xfrm.AddSaInfo(
         tsrc_addr, tdst_addr,
-        htonl(spi), xfrm.XFRM_MODE_TUNNEL, 0, selector,
+        htonl(spi), xfrm.XFRM_MODE_TUNNEL, 0,
         xfrm_base._ALGO_CBC_AES_256,
         xfrm_base._ALGO_HMAC_SHA1,
         None,
         mark,
         output_mark)
 
-    policy = xfrm_base.UserPolicy(direction, selector)
-    tmpl = xfrm_base.UserTemplate(outer_family, htonl(spi), 0,
+    if selector is None:
+      selectors = [xfrm.EmptySelector(AF_INET), xfrm.EmptySelector(AF_INET6)]
+    else:
+      selectors = [selector]
+
+    for selector in selectors:
+      policy = xfrm_base.UserPolicy(direction, selector)
+      tmpl = xfrm_base.UserTemplate(outer_family, htonl(spi), 0,
                                     (tsrc_addr, tdst_addr))
-    self.xfrm.AddPolicyInfo(policy, tmpl, mark)
+      self.xfrm.AddPolicyInfo(policy, tmpl, mark)
 
   def _CheckTunnelOutput(self, inner_version, outer_version):
     """Test a bi-directional XFRM Tunnel with explicit selectors"""
@@ -146,7 +156,6 @@ class XfrmTunnelTest(xfrm_base.XfrmBaseTest):
     self._CreateXfrmTunnel(
         direction=xfrm.XFRM_POLICY_OUT,
         selector=xfrm.SrcDstSelector(local_inner, remote_inner),
-        outer_family=net_test.GetAddressFamily(outer_version),
         tsrc_addr=local_outer,
         tdst_addr=remote_outer,
         spi=_TEST_OUT_SPI,
@@ -267,8 +276,7 @@ class XfrmTunnelTest(xfrm_base.XfrmBaseTest):
       # addresses are wildcard.
       self._CreateXfrmTunnel(
           direction=xfrm.XFRM_POLICY_OUT,
-          selector=xfrm.EmptySelector(net_test.GetAddressFamily(inner_version)),
-          outer_family=net_test.GetAddressFamily(outer_version),
+          selector=None,
           tsrc_addr=local_outer,
           tdst_addr=remote_outer,
           mark=xfrm.ExactMatchMark(_TEST_OKEY),
@@ -277,8 +285,7 @@ class XfrmTunnelTest(xfrm_base.XfrmBaseTest):
 
       self._CreateXfrmTunnel(
           direction=xfrm.XFRM_POLICY_IN,
-          selector=xfrm.EmptySelector(net_test.GetAddressFamily(inner_version)),
-          outer_family=net_test.GetAddressFamily(outer_version),
+          selector=None,
           tsrc_addr=remote_outer,
           tdst_addr=local_outer,
           mark=xfrm.ExactMatchMark(_TEST_IKEY),
