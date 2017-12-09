@@ -27,10 +27,12 @@ _ENCRYPTION_KEY_256 = ("308146eb3bd84b044573d60f5a5fd159"
                        "57c7d4fe567a2120f35bae0f9869ec22".decode("hex"))
 _AUTHENTICATION_KEY_128 = "af442892cdcd0ef650e9c299f9a8436a".decode("hex")
 
-_ALGO_AUTH_NULL = xfrm.XfrmAlgoAuth(("digest_null", 0, 0))
-_ALGO_CBC_AES_256 = xfrm.XfrmAlgo(("cbc(aes)", 256))
-_ALGO_CRYPT_NULL = xfrm.XfrmAlgo(("ecb(cipher_null)", 0))
-_ALGO_HMAC_SHA1 = xfrm.XfrmAlgoAuth(("hmac(sha1)", 128, 96))
+_ALGO_AUTH_NULL = (xfrm.XfrmAlgoAuth(("digest_null", 0, 0)), "")
+_ALGO_CBC_AES_256 = (xfrm.XfrmAlgo((xfrm.XFRM_EALG_CBC_AES, 256)),
+                     _ENCRYPTION_KEY_256)
+_ALGO_CRYPT_NULL = (xfrm.XfrmAlgo(("ecb(cipher_null)", 0)), "")
+_ALGO_HMAC_SHA1 = (xfrm.XfrmAlgoAuth((xfrm.XFRM_AALG_HMAC_SHA1, 128, 96)),
+                   _AUTHENTICATION_KEY_128)
 
 # Match all bits of the mark
 MARK_MASK_ALL = 0xffffffff
