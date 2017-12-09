@@ -22,6 +22,8 @@ import os
 from socket import *  # pylint: disable=wildcard-import
 import struct
 
+import net_test
+import csocket
 import cstruct
 import netlink
 
@@ -219,6 +221,24 @@ def PaddedAddress(addr):
   return padded
 
 
+def EmptySelector(family):
+  """A selector that matches all packets of the specified address family."""
+  return XfrmSelector(family=family)
+
+
+def SrcDstSelector(src, dst):
+  """A selector that matches packets between the specified IP addresses."""
+  srcver = csocket.AddressVersion(src)
+  dstver = csocket.AddressVersion(dst)
+  if srcver != dstver:
+    raise ValueError("Cross-address family selector specified: %s -> %s" %
+                     (src, dst))
+  prefixlen = net_test.AddressLengthBits(srcver)
+  family = net_test.GetAddressFamily(srcver)
+  return XfrmSelector(saddr=PaddedAddress(src), daddr=PaddedAddress(dst),
+      prefixlen_s=prefixlen, prefixlen_d=prefixlen, family=family)
+
+
 class Xfrm(netlink.NetlinkSocket):
   """Netlink interface to xfrm."""
 
@@ -337,8 +357,9 @@ class Xfrm(netlink.NetlinkSocket):
   def AddMinimalSaInfo(self, src, dst, spi, proto, mode, reqid,
                        encryption, encryption_key,
                        auth_trunc, auth_trunc_key, encap,
-                       mark, mark_mask, output_mark, sel_family=AF_UNSPEC):
-    selector = XfrmSelector(family=sel_family)
+                       mark, mark_mask, output_mark, selector=None):
+    if selector is None:
+      selector = EmptySelector(AF_UNSPEC)
     xfrm_id = XfrmId((PaddedAddress(dst), spi, proto))
     family = AF_INET6 if ":" in dst else AF_INET
     nlattrs = self._NlAttr(XFRMA_ALG_CRYPT,
