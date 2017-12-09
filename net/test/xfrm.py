@@ -152,7 +152,7 @@ XfrmAlgoAead = cstruct.Struct("XfrmAlgoAead", "=64AII", "name key_len icv_len")
 XfrmStats = cstruct.Struct(
     "XfrmStats", "=III", "replay_window replay integrity_failed")
 
-XfrmId = cstruct.Struct("XfrmId", "=16sIBxxx", "daddr spi proto")
+XfrmId = cstruct.Struct("XfrmId", "!16sIBxxx", "daddr spi proto")
 
 XfrmUserTmpl = cstruct.Struct(
     "XfrmUserTmpl", "=SHxx16sIBBBxIII",
@@ -170,8 +170,11 @@ XfrmUsersaInfo = cstruct.Struct(
 XfrmUserSpiInfo = cstruct.Struct(
     "XfrmUserSpiInfo", "=SII", "info min max", [XfrmUsersaInfo])
 
+# Technically the family is a 16-bit field, but only a few families are in use,
+# and if we pretend it's 8 bits (i.e., use "Bx" instead of "H") we can think
+# of the whole structure as being in network byte order.
 XfrmUsersaId = cstruct.Struct(
-    "XfrmUsersaInfo", "=16sIHBx", "daddr spi family proto")
+    "XfrmUsersaId", "!16sIBxBx", "daddr spi family proto")
 
 # xfrm.h - struct xfrm_userpolicy_info
 XfrmUserpolicyInfo = cstruct.Struct(
