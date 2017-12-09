@@ -301,6 +301,9 @@ class XfrmTunnelTest(xfrm_base.XfrmBaseTest):
       # Guard against the eventuality of the receive failing.
       csocket.SetSocketTimeout(read_sock, 100)
 
+      # Start counting packets.
+      rx, tx = self.iproute.GetRxTxPackets(_VTI_IFNAME)
+
       # Send a packet out via the vti-backed network, bound for the port number
       # of the input socket.
       write_sock = socket(
@@ -313,6 +316,8 @@ class XfrmTunnelTest(xfrm_base.XfrmBaseTest):
       # verifying that it is an ESP packet.
       pkt = self._ExpectEspPacketOn(netid, _TEST_OUT_SPI, 1, None, local_outer,
                                     remote_outer)
+
+      self.assertEquals((rx, tx + 1), self.iproute.GetRxTxPackets(_VTI_IFNAME))
 
       # Perform an address switcheroo so that the inner address of the remote
       # end of the tunnel is now the address on the local VTI interface; this
@@ -329,6 +334,8 @@ class XfrmTunnelTest(xfrm_base.XfrmBaseTest):
         # Receive the decrypted packet on the dest port number.
         read_packet = read_sock.recv(4096)
         self.assertEquals(read_packet, net_test.UDP_PAYLOAD)
+        self.assertEquals((rx + 1, tx + 1),
+                          self.iproute.GetRxTxPackets(_VTI_IFNAME))
       finally:
         # Unwind the switcheroo
         self._SwapInterfaceAddress(_VTI_IFNAME, new_addr=local, old_addr=remote)
