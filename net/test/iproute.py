@@ -117,13 +117,17 @@ IFA_F_DEPRECATED = 0x20
 IFA_F_TENTATIVE = 0x40
 IFA_F_PERMANENT = 0x80
 
+# This cannot contain members that do not yet exist in older kernels, because
+# GetIfaceStats will fail if the kernel returns fewer bytes than the size of
+# RtnlLinkStats[64].
 _LINK_STATS_MEMBERS = (
     "rx_packets tx_packets rx_bytes tx_bytes rx_errors tx_errors "
     "rx_dropped tx_dropped multicast collisions "
     "rx_length_errors rx_over_errors rx_crc_errors rx_frame_errors "
     "rx_fifo_errors rx_missed_errors tx_aborted_errors tx_carrier_errors "
     "tx_fifo_errors tx_heartbeat_errors tx_window_errors "
-    "rx_compressed tx_compressed rx_nohandler")
+    "rx_compressed tx_compressed")
+
 # Data structure formats.
 IfAddrMsg = cstruct.Struct(
     "IfAddrMsg", "=BBBBI",
@@ -133,9 +137,9 @@ IFACacheinfo = cstruct.Struct(
 NDACacheinfo = cstruct.Struct(
     "NDACacheinfo", "=IIII", "confirmed used updated refcnt")
 RtnlLinkStats = cstruct.Struct(
-    "RtnlLinkStats", "=IIIIIIIIIIIIIIIIIIIIIIII", _LINK_STATS_MEMBERS)
+    "RtnlLinkStats", "=IIIIIIIIIIIIIIIIIIIIIII", _LINK_STATS_MEMBERS)
 RtnlLinkStats64 = cstruct.Struct(
-    "RtnlLinkStats64", "=QQQQQQQQQQQQQQQQQQQQQQQQ", _LINK_STATS_MEMBERS)
+    "RtnlLinkStats64", "=QQQQQQQQQQQQQQQQQQQQQQQ", _LINK_STATS_MEMBERS)
 
 ### Neighbour table entry constants. See include/uapi/linux/neighbour.h.
 # Neighbour cache entry attributes.
@@ -639,18 +643,41 @@ class IPRoute(netlink.NetlinkSocket):
     flags = netlink.NLM_F_REQUEST | netlink.NLM_F_ACK
     return self._SendNlRequest(RTM_DELLINK, ifinfo, flags)
 
-  def GetIfIndex(self, dev_name):
+  def GetIfinfo(self, dev_name):
+    """Fetches information about the specified interface.
+
+    Args:
+      dev_name: A string, the name of the interface.
+
+    Returns:
+      A tuple containing an IfinfoMsg struct and raw, undecoded attributes.
+    """
     ifinfo = IfinfoMsg().Pack()
     ifinfo += self._NlAttrStr(IFLA_IFNAME, dev_name)
     self._SendNlRequest(RTM_GETLINK, ifinfo, netlink.NLM_F_REQUEST)
     hdr, data = cstruct.Read(self._Recv(), netlink.NLMsgHdr)
     if hdr.type == RTM_NEWLINK:
-      return IfinfoMsg(data).index
+      return cstruct.Read(data, IfinfoMsg)
     elif hdr.type == netlink.NLMSG_ERROR:
       error = netlink.NLMsgErr(data).error
       raise IOError(error, os.strerror(-error))
     else:
       raise ValueError("Unknown Netlink Message Type %d" % hdr.type)
+
+  def GetIfIndex(self, dev_name):
+    """Returns the interface index for the specified interface."""
+    ifinfo, _ = self.GetIfinfo(dev_name)
+    return ifinfo.index
+
+  def GetIfaceStats(self, dev_name):
+    """Returns an RtnlLinkStats64 stats object for the specified interface."""
+    _, attrs = self.GetIfinfo(dev_name)
+    attrs = self._ParseAttributes(RTM_NEWLINK, IfinfoMsg, attrs)
+    return attrs["IFLA_STATS64"]
+
+  def GetRxTxPackets(self, dev_name):
+    stats = self.GetIfaceStats(dev_name)
+    return stats.rx_packets, stats.tx_packets
 
   def CreateVirtualTunnelInterface(self, dev_name, local_addr, remote_addr,
                                    i_key=None, o_key=None):
