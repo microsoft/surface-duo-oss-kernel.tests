@@ -134,8 +134,8 @@ class XfrmAlgorithmTest(xfrm_base.XfrmBaseTest):
         params["auth"].key_len,
         params["auth"].trunc_len)),
         os.urandom(params["auth"].key_len / 8))
-    spi_left = htonl(0xbeefface)
-    spi_right = htonl(0xcafed00d)
+    spi_left = 0xbeefface
+    spi_right = 0xcafed00d
     req_ids = [100, 200, 300, 400]  # Used to match templates and SAs.
 
     # Left outbound SA

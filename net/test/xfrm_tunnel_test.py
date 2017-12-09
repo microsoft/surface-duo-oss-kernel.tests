@@ -121,7 +121,7 @@ class XfrmTunnelTest(xfrm_base.XfrmBaseTest):
 
     self.xfrm.AddSaInfo(
         tsrc_addr, tdst_addr,
-        htonl(spi), xfrm.XFRM_MODE_TUNNEL, 0,
+        spi, xfrm.XFRM_MODE_TUNNEL, 0,
         xfrm_base._ALGO_CBC_AES_256,
         xfrm_base._ALGO_HMAC_SHA1,
         None,
@@ -135,7 +135,7 @@ class XfrmTunnelTest(xfrm_base.XfrmBaseTest):
 
     for selector in selectors:
       policy = xfrm_base.UserPolicy(direction, selector)
-      tmpl = xfrm_base.UserTemplate(outer_family, htonl(spi), 0,
+      tmpl = xfrm_base.UserTemplate(outer_family, spi, 0,
                                     (tsrc_addr, tdst_addr))
       self.xfrm.AddPolicyInfo(policy, tmpl, mark)
 
