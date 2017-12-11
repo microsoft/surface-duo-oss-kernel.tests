@@ -52,6 +52,9 @@ NLAttr = cstruct.Struct("NLAttr", "=HH", "nla_len nla_type")
 # Alignment / padding.
 NLA_ALIGNTO = 4
 
+# List of attributes that can appear more than once in a given netlink message.
+# These can appear more than once but don't seem to contain any data.
+DUP_ATTRS_OK = ["INET_DIAG_NONE", "IFLA_PAD"]
 
 def PaddedLength(length):
   # TODO: This padding is probably overly simplistic.
@@ -113,7 +116,7 @@ class NetlinkSocket(object):
 
     return nla, nla_data, data
 
-  def _ParseAttributes(self, command, msg, data):
+  def _ParseAttributes(self, command, msg, data, nested=0):
     """Parses and decodes netlink attributes.
 
     Takes a block of NLAttr data structures, decodes them using Decode, and
@@ -123,6 +126,7 @@ class NetlinkSocket(object):
       command: An integer, the rtnetlink command being carried out.
       msg: A Struct, the type of the data after the netlink header.
       data: A byte string containing a sequence of NLAttr data structures.
+      nested: An integer, how deep we're currently nested.
 
     Returns:
       A dictionary mapping attribute types (integers) to decoded values.
@@ -137,13 +141,12 @@ class NetlinkSocket(object):
       # If it's an attribute we know about, try to decode it.
       nla_name, nla_data = self._Decode(command, msg, nla.nla_type, nla_data)
 
-      # We only support unique attributes for now, except for INET_DIAG_NONE,
-      # which can appear more than once but doesn't seem to contain any data.
-      if nla_name in attributes and nla_name != "INET_DIAG_NONE":
+      if nla_name in attributes and nla_name not in DUP_ATTRS_OK:
         raise ValueError("Duplicate attribute %s" % nla_name)
 
       attributes[nla_name] = nla_data
-      self._Debug("      %s" % str((nla_name, nla_data)))
+      if not nested:
+        self._Debug("      %s" % (str((nla_name, nla_data))))
 
     return attributes
 

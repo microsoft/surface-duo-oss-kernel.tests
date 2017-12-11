@@ -118,77 +118,73 @@ class XfrmAlgorithmTest(xfrm_base.XfrmBaseTest):
     family = net_test.GetAddressFamily(params["version"])
     local_addr = self.MyAddress(params["version"], netid)
     remote_addr = self.GetRemoteAddress(params["version"])
-    ekey_left = os.urandom(params["crypt"].key_len / 8)
-    akey_left = os.urandom(params["auth"].key_len / 8)
-    ekey_right = os.urandom(params["crypt"].key_len / 8)
-    akey_right = os.urandom(params["auth"].key_len / 8)
-    spi_left = htonl(0xbeefface)
-    spi_right = htonl(0xcafed00d)
+    crypt_left = (xfrm.XfrmAlgo((params["crypt"].name,
+                                 params["crypt"].key_len)),
+                                 os.urandom(params["crypt"].key_len / 8))
+    crypt_right = (xfrm.XfrmAlgo((params["crypt"].name,
+                                  params["crypt"].key_len)),
+                                  os.urandom(params["crypt"].key_len / 8))
+    auth_left = (xfrm.XfrmAlgoAuth((
+        params["auth"].name,
+        params["auth"].key_len,
+        params["auth"].trunc_len)),
+        os.urandom(params["auth"].key_len / 8))
+    auth_right = (xfrm.XfrmAlgoAuth((
+        params["auth"].name,
+        params["auth"].key_len,
+        params["auth"].trunc_len)),
+        os.urandom(params["auth"].key_len / 8))
+    spi_left = 0xbeefface
+    spi_right = 0xcafed00d
     req_ids = [100, 200, 300, 400]  # Used to match templates and SAs.
 
     # Left outbound SA
-    self.xfrm.AddMinimalSaInfo(
+    self.xfrm.AddSaInfo(
         src=local_addr,
         dst=remote_addr,
         spi=spi_right,
-        proto=IPPROTO_ESP,
         mode=xfrm.XFRM_MODE_TRANSPORT,
         reqid=req_ids[0],
-        encryption=params["crypt"],
-        encryption_key=ekey_right,
-        auth_trunc=params["auth"],
-        auth_trunc_key=akey_right,
+        encryption=crypt_right,
+        auth_trunc=auth_right,
         encap=None,
         mark=None,
-        mark_mask=None,
         output_mark=None)
     # Right inbound SA
-    self.xfrm.AddMinimalSaInfo(
+    self.xfrm.AddSaInfo(
         src=remote_addr,
         dst=local_addr,
         spi=spi_right,
-        proto=IPPROTO_ESP,
         mode=xfrm.XFRM_MODE_TRANSPORT,
         reqid=req_ids[1],
-        encryption=params["crypt"],
-        encryption_key=ekey_right,
-        auth_trunc=params["auth"],
-        auth_trunc_key=akey_right,
+        encryption=crypt_right,
+        auth_trunc=auth_right,
         encap=None,
         mark=None,
-        mark_mask=None,
         output_mark=None)
     # Right outbound SA
-    self.xfrm.AddMinimalSaInfo(
+    self.xfrm.AddSaInfo(
         src=local_addr,
         dst=remote_addr,
         spi=spi_left,
-        proto=IPPROTO_ESP,
         mode=xfrm.XFRM_MODE_TRANSPORT,
         reqid=req_ids[2],
-        encryption=params["crypt"],
-        encryption_key=ekey_left,
-        auth_trunc=params["auth"],
-        auth_trunc_key=akey_left,
+        encryption=crypt_left,
+        auth_trunc=auth_left,
         encap=None,
         mark=None,
-        mark_mask=None,
         output_mark=None)
     # Left inbound SA
-    self.xfrm.AddMinimalSaInfo(
+    self.xfrm.AddSaInfo(
         src=remote_addr,
         dst=local_addr,
         spi=spi_left,
-        proto=IPPROTO_ESP,
         mode=xfrm.XFRM_MODE_TRANSPORT,
         reqid=req_ids[3],
-        encryption=params["crypt"],
-        encryption_key=ekey_left,
-        auth_trunc=params["auth"],
-        auth_trunc_key=akey_left,
+        encryption=crypt_left,
+        auth_trunc=auth_left,
         encap=None,
         mark=None,
-        mark_mask=None,
         output_mark=None)
 
     # Make two sockets.

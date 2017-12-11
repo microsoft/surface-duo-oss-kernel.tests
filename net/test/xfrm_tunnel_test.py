@@ -91,12 +91,7 @@ class XfrmTunnelTest(xfrm_base.XfrmBaseTest):
   # TODO: Take encryption and auth parameters.
   def _CreateXfrmTunnel(self,
                         direction,
-                        inner_family,
-                        src_addr,
-                        src_prefixlen,
-                        dst_addr,
-                        dst_prefixlen,
-                        outer_family,
+                        selector,
                         tsrc_addr,
                         tdst_addr,
                         spi,
@@ -109,13 +104,10 @@ class XfrmTunnelTest(xfrm_base.XfrmBaseTest):
 
     Args:
       direction: XFRM_POLICY_IN or XFRM_POLICY_OUT
-      inner_family: The address family (AF_INET or AF_INET6) of the tunneled
-        packets
-      src_addr: The source address of the inner packets to be tunneled
-      src_prefixlen: The number of bits in src_addr to match
-      dst_addr: The destination address of the inner packets to be tunneled
-      dst_prefixlen: The number of bits in dst_addr to match
-      outer_family: The address family (AF_INET or AF_INET6) the tunnel
+      selector: An XfrmSelector that specifies the packets to be transformed.
+        This is only applied to the policy; the selector in the SA is always
+        empty. If the passed-in selector is None, then the tunnel is made
+        dual-stack. This requires two policies, one for IPv4 and one for IPv6.
       tsrc_addr: The source address of the tunneled packets
       tdst_addr: The destination address of the tunneled packets
       spi: The SPI for the IPsec SA that encapsulates the tunneled packet
@@ -124,59 +116,28 @@ class XfrmTunnelTest(xfrm_base.XfrmBaseTest):
       output_mark: The mark used to select the underlying network for packets
         outbound from xfrm.
     """
-    self.xfrm.AddMinimalSaInfo(
-        tsrc_addr,
-        tdst_addr,
-        htonl(spi),
-        IPPROTO_ESP,
-        xfrm.XFRM_MODE_TUNNEL,
-        0,
+    outer_family = net_test.GetAddressFamily(
+        net_test.GetAddressVersion(tdst_addr))
+
+    self.xfrm.AddSaInfo(
+        tsrc_addr, tdst_addr,
+        spi, xfrm.XFRM_MODE_TUNNEL, 0,
         xfrm_base._ALGO_CBC_AES_256,
-        xfrm_base._ENCRYPTION_KEY_256,
         xfrm_base._ALGO_HMAC_SHA1,
-        xfrm_base._AUTHENTICATION_KEY_128,
         None,
         mark,
-        xfrm_base.MARK_MASK_ALL if mark is not None else None,
-        output_mark,
-        sel_family=inner_family)
+        output_mark)
 
-    sel = xfrm.XfrmSelector(
-        daddr=xfrm.PaddedAddress(dst_addr),
-        saddr=xfrm.PaddedAddress(src_addr),
-        prefixlen_d=dst_prefixlen,
-        prefixlen_s=src_prefixlen,
-        family=inner_family)
+    if selector is None:
+      selectors = [xfrm.EmptySelector(AF_INET), xfrm.EmptySelector(AF_INET6)]
+    else:
+      selectors = [selector]
 
-    policy = xfrm.XfrmUserpolicyInfo(
-        sel=sel,
-        lft=xfrm.NO_LIFETIME_CFG,
-        curlft=xfrm.NO_LIFETIME_CUR,
-        priority=100,
-        index=0,
-        dir=direction,
-        action=xfrm.XFRM_POLICY_ALLOW,
-        flags=xfrm.XFRM_POLICY_LOCALOK,
-        share=xfrm.XFRM_SHARE_ANY)
-
-    # Create a template that specifies the SPI and the protocol.
-    xfrmid = xfrm.XfrmId(
-        daddr=xfrm.PaddedAddress(tdst_addr), spi=htonl(spi), proto=IPPROTO_ESP)
-    tmpl = xfrm.XfrmUserTmpl(
-        id=xfrmid,
-        family=outer_family,
-        saddr=xfrm.PaddedAddress(tsrc_addr),
-        reqid=0,
-        mode=xfrm.XFRM_MODE_TUNNEL,
-        share=xfrm.XFRM_SHARE_ANY,
-        optional=0,  # require
-        aalgos=xfrm_base.ALL_ALGORITHMS,  # auth algos
-        ealgos=xfrm_base.ALL_ALGORITHMS,  # encryption algos
-        calgos=xfrm_base.ALL_ALGORITHMS)  # compression algos
-
-    self.xfrm.AddPolicyInfo(policy, tmpl,
-                            xfrm.XfrmMark((mark, xfrm_base.MARK_MASK_ALL))
-                            if mark else None)
+    for selector in selectors:
+      policy = xfrm_base.UserPolicy(direction, selector)
+      tmpl = xfrm_base.UserTemplate(outer_family, spi, 0,
+                                    (tsrc_addr, tdst_addr))
+      self.xfrm.AddPolicyInfo(policy, tmpl, mark)
 
   def _CheckTunnelOutput(self, inner_version, outer_version):
     """Test a bi-directional XFRM Tunnel with explicit selectors"""
@@ -191,17 +152,12 @@ class XfrmTunnelTest(xfrm_base.XfrmBaseTest):
     remote_inner = self._GetRemoteInnerAddress(inner_version)
     local_outer = self.MyAddress(outer_version, underlying_netid)
     remote_outer = self._GetRemoteOuterAddress(outer_version)
+
     self._CreateXfrmTunnel(
         direction=xfrm.XFRM_POLICY_OUT,
-        inner_family=net_test.GetAddressFamily(inner_version),
-        src_addr=local_inner,
-        src_prefixlen=net_test.AddressLengthBits(inner_version),
-        dst_addr=remote_inner,
-        dst_prefixlen=net_test.AddressLengthBits(inner_version),
-        outer_family=net_test.GetAddressFamily(outer_version),
+        selector=xfrm.SrcDstSelector(local_inner, remote_inner),
         tsrc_addr=local_outer,
         tdst_addr=remote_outer,
-        mark=None,
         spi=_TEST_OUT_SPI,
         output_mark=underlying_netid)
 
@@ -318,33 +274,23 @@ class XfrmTunnelTest(xfrm_base.XfrmBaseTest):
       # For the VTI, the selectors are wildcard since packets will only
       # be selected if they have the appropriate mark, hence the inner
       # addresses are wildcard.
-      inner_addr = net_test.GetWildcardAddress(inner_version)
       self._CreateXfrmTunnel(
           direction=xfrm.XFRM_POLICY_OUT,
-          inner_family=net_test.GetAddressFamily(inner_version),
-          src_addr=inner_addr,
-          src_prefixlen=0,
-          dst_addr=inner_addr,
-          dst_prefixlen=0,
-          outer_family=net_test.GetAddressFamily(outer_version),
+          selector=None,
           tsrc_addr=local_outer,
           tdst_addr=remote_outer,
-          mark=_TEST_OKEY,
+          mark=xfrm.ExactMatchMark(_TEST_OKEY),
           spi=_TEST_OUT_SPI,
           output_mark=netid)
 
       self._CreateXfrmTunnel(
           direction=xfrm.XFRM_POLICY_IN,
-          inner_family=net_test.GetAddressFamily(inner_version),
-          src_addr=inner_addr,
-          src_prefixlen=0,
-          dst_addr=inner_addr,
-          dst_prefixlen=0,
-          outer_family=net_test.GetAddressFamily(outer_version),
+          selector=None,
           tsrc_addr=remote_outer,
           tdst_addr=local_outer,
-          mark=_TEST_IKEY,
-          spi=_TEST_IN_SPI)
+          mark=xfrm.ExactMatchMark(_TEST_IKEY),
+          spi=_TEST_IN_SPI,
+          output_mark=netid)
 
       # Create a socket to receive packets.
       read_sock = socket(
@@ -354,6 +300,9 @@ class XfrmTunnelTest(xfrm_base.XfrmBaseTest):
       port = read_sock.getsockname()[1]
       # Guard against the eventuality of the receive failing.
       csocket.SetSocketTimeout(read_sock, 100)
+
+      # Start counting packets.
+      rx, tx = self.iproute.GetRxTxPackets(_VTI_IFNAME)
 
       # Send a packet out via the vti-backed network, bound for the port number
       # of the input socket.
@@ -367,6 +316,8 @@ class XfrmTunnelTest(xfrm_base.XfrmBaseTest):
       # verifying that it is an ESP packet.
       pkt = self._ExpectEspPacketOn(netid, _TEST_OUT_SPI, 1, None, local_outer,
                                     remote_outer)
+
+      self.assertEquals((rx, tx + 1), self.iproute.GetRxTxPackets(_VTI_IFNAME))
 
       # Perform an address switcheroo so that the inner address of the remote
       # end of the tunnel is now the address on the local VTI interface; this
@@ -383,6 +334,8 @@ class XfrmTunnelTest(xfrm_base.XfrmBaseTest):
         # Receive the decrypted packet on the dest port number.
         read_packet = read_sock.recv(4096)
         self.assertEquals(read_packet, net_test.UDP_PAYLOAD)
+        self.assertEquals((rx + 1, tx + 1),
+                          self.iproute.GetRxTxPackets(_VTI_IFNAME))
       finally:
         # Unwind the switcheroo
         self._SwapInterfaceAddress(_VTI_IFNAME, new_addr=local, old_addr=remote)
