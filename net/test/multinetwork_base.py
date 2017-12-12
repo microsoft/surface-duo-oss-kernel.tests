@@ -53,6 +53,8 @@ IPV6_HOPLIMIT = 52  # Different from IPV6_UNICAST_HOPS, this is cmsg only.
 
 
 AUTOCONF_TABLE_SYSCTL = "/proc/sys/net/ipv6/conf/default/accept_ra_rt_table"
+IPV4_MARK_REFLECT_SYSCTL = "/proc/sys/net/ipv4/fwmark_reflect"
+IPV6_MARK_REFLECT_SYSCTL = "/proc/sys/net/ipv6/fwmark_reflect"
 
 HAVE_AUTOCONF_TABLE = os.path.isfile(AUTOCONF_TABLE_SYSCTL)
 
@@ -296,6 +298,17 @@ class MultiNetworkBaseTest(net_test.NetworkTest):
           cls.iproute.DelNeighbour(version, router, macaddr, ifindex)
           cls.iproute.DelAddress(cls._MyIPv4Address(netid),
                                  cls.OnlinkPrefixLen(4), ifindex)
+
+  @classmethod
+  def _SetInboundMarking(cls, netid, iface, is_add):
+    for version in [4, 6]:
+      # Run iptables to set up incoming packet marking.
+      add_del = "-A" if is_add else "-D"
+      iptables = {4: "iptables", 6: "ip6tables"}[version]
+      args = "%s INPUT -t mangle -i %s -j MARK --set-mark %d" % (
+          add_del, iface, netid)
+      if net_test.RunIptablesCommand(version, args):
+        raise ConfigurationError("Setup command failed: %s" % args)
 
   @classmethod
   def SetDefaultNetwork(cls, netid):
@@ -697,3 +710,29 @@ class MultiNetworkBaseTest(net_test.NetworkTest):
     else:
       self.ExpectNoPacketsOn(netid, msg)
       return None
+
+
+class InboundMarkingTest(MultiNetworkBaseTest):
+  """Class that automatically sets up inbound marking."""
+
+  @classmethod
+  def setUpClass(cls):
+    super(InboundMarkingTest, cls).setUpClass()
+    for netid in cls.tuns:
+      cls._SetInboundMarking(netid, cls.GetInterfaceName(netid), True)
+
+  @classmethod
+  def tearDownClass(cls):
+    for netid in cls.tuns:
+      cls._SetInboundMarking(netid, cls.GetInterfaceName(netid), False)
+    super(InboundMarkingTest, cls).tearDownClass()
+
+  @classmethod
+  def SetMarkReflectSysctls(cls, value):
+    cls.SetSysctl(IPV4_MARK_REFLECT_SYSCTL, value)
+    try:
+      cls.SetSysctl(IPV6_MARK_REFLECT_SYSCTL, value)
+    except IOError:
+      # This does not exist if we use the version of the patch that uses a
+      # common sysctl for IPv4 and IPv6.
+      pass

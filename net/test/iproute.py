@@ -117,6 +117,17 @@ IFA_F_DEPRECATED = 0x20
 IFA_F_TENTATIVE = 0x40
 IFA_F_PERMANENT = 0x80
 
+# This cannot contain members that do not yet exist in older kernels, because
+# GetIfaceStats will fail if the kernel returns fewer bytes than the size of
+# RtnlLinkStats[64].
+_LINK_STATS_MEMBERS = (
+    "rx_packets tx_packets rx_bytes tx_bytes rx_errors tx_errors "
+    "rx_dropped tx_dropped multicast collisions "
+    "rx_length_errors rx_over_errors rx_crc_errors rx_frame_errors "
+    "rx_fifo_errors rx_missed_errors tx_aborted_errors tx_carrier_errors "
+    "tx_fifo_errors tx_heartbeat_errors tx_window_errors "
+    "rx_compressed tx_compressed")
+
 # Data structure formats.
 IfAddrMsg = cstruct.Struct(
     "IfAddrMsg", "=BBBBI",
@@ -125,7 +136,10 @@ IFACacheinfo = cstruct.Struct(
     "IFACacheinfo", "=IIII", "prefered valid cstamp tstamp")
 NDACacheinfo = cstruct.Struct(
     "NDACacheinfo", "=IIII", "confirmed used updated refcnt")
-
+RtnlLinkStats = cstruct.Struct(
+    "RtnlLinkStats", "=IIIIIIIIIIIIIIIIIIIIIII", _LINK_STATS_MEMBERS)
+RtnlLinkStats64 = cstruct.Struct(
+    "RtnlLinkStats64", "=QQQQQQQQQQQQQQQQQQQQQQQ", _LINK_STATS_MEMBERS)
 
 ### Neighbour table entry constants. See include/uapi/linux/neighbour.h.
 # Neighbour cache entry attributes.
@@ -186,6 +200,13 @@ IFLA_PROMISCUITY = 30
 IFLA_NUM_TX_QUEUES = 31
 IFLA_NUM_RX_QUEUES = 32
 IFLA_CARRIER = 33
+IFLA_CARRIER_CHANGES = 35
+IFLA_PROTO_DOWN = 39
+IFLA_GSO_MAX_SEGS = 40
+IFLA_GSO_MAX_SIZE = 41
+IFLA_PAD = 42
+IFLA_XDP = 43
+IFLA_EVENT = 44
 
 # linux/include/uapi/if_link.h
 IFLA_INFO_UNSPEC = 0
@@ -226,7 +247,7 @@ class IPRoute(netlink.NetlinkSocket):
   def _GetConstantName(self, value, prefix):
     return super(IPRoute, self)._GetConstantName(__name__, value, prefix)
 
-  def _Decode(self, command, msg, nla_type, nla_data):
+  def _Decode(self, command, msg, nla_type, nla_data, nested=0):
     """Decodes netlink attributes to Python types.
 
     Values for which the code knows the type (e.g., the fwmark ID in a
@@ -242,9 +263,11 @@ class IPRoute(netlink.NetlinkSocket):
           incoming interface name and is a string.
         - If negative, one of the following (negative) values:
           - RTA_METRICS: Interpret as nested route metrics.
+          - IFLA_LINKINFO: Nested interface information.
       family: The address family. Used to convert IP addresses into strings.
       nla_type: An integer, then netlink attribute type.
       nla_data: A byte string, the netlink attribute data.
+      nested: An integer, how deep we're currently nested.
 
     Returns:
       A tuple (name, data):
@@ -257,6 +280,8 @@ class IPRoute(netlink.NetlinkSocket):
     """
     if command == -RTA_METRICS:
       name = self._GetConstantName(nla_type, "RTAX_")
+    elif command == -IFLA_LINKINFO:
+      name = self._GetConstantName(nla_type, "IFLA_INFO_")
     elif CommandSubject(command) == "ADDR":
       name = self._GetConstantName(nla_type, "IFA_")
     elif CommandSubject(command) == "LINK":
@@ -276,7 +301,8 @@ class IPRoute(netlink.NetlinkSocket):
                 "IFLA_MTU", "IFLA_TXQLEN", "IFLA_GROUP", "IFLA_EXT_MASK",
                 "IFLA_PROMISCUITY", "IFLA_NUM_RX_QUEUES",
                 "IFLA_NUM_TX_QUEUES", "NDA_PROBES", "RTAX_MTU",
-                "RTAX_HOPLIMIT"]:
+                "RTAX_HOPLIMIT", "IFLA_CARRIER_CHANGES", "IFLA_GSO_MAX_SEGS",
+                "IFLA_GSO_MAX_SIZE"]:
       data = struct.unpack("=I", nla_data)[0]
     elif name == "FRA_SUPPRESS_PREFIXLEN":
       data = struct.unpack("=i", nla_data)[0]
@@ -287,20 +313,26 @@ class IPRoute(netlink.NetlinkSocket):
                   "NDA_DST"]:
       data = socket.inet_ntop(msg.family, nla_data)
     elif name in ["FRA_IIFNAME", "FRA_OIFNAME", "IFLA_IFNAME", "IFLA_QDISC",
-                  "IFA_LABEL"]:
+                  "IFA_LABEL", "IFLA_INFO_KIND"]:
       data = nla_data.strip("\x00")
     elif name == "RTA_METRICS":
-      data = self._ParseAttributes(-RTA_METRICS, None, nla_data)
+      data = self._ParseAttributes(-RTA_METRICS, None, nla_data, nested + 1)
+    elif name == "IFLA_LINKINFO":
+      data = self._ParseAttributes(-IFLA_LINKINFO, None, nla_data, nested + 1)
     elif name == "RTA_CACHEINFO":
       data = RTACacheinfo(nla_data)
     elif name == "IFA_CACHEINFO":
       data = IFACacheinfo(nla_data)
     elif name == "NDA_CACHEINFO":
       data = NDACacheinfo(nla_data)
-    elif name in ["NDA_LLADDR", "IFLA_ADDRESS"]:
+    elif name in ["NDA_LLADDR", "IFLA_ADDRESS", "IFLA_BROADCAST"]:
       data = ":".join(x.encode("hex") for x in nla_data)
     elif name == "FRA_UID_RANGE":
       data = FibRuleUidRange(nla_data)
+    elif name == "IFLA_STATS":
+      data = RtnlLinkStats(nla_data)
+    elif name == "IFLA_STATS64":
+      data = RtnlLinkStats64(nla_data)
     else:
       data = nla_data
 
@@ -487,7 +519,7 @@ class IPRoute(netlink.NetlinkSocket):
       AssertionError: An IPv6 address was requested, and it did not appear
         within the timeout.
     """
-    version = 6 if ":" in address else 4
+    version = csocket.AddressVersion(address)
 
     flags = IFA_F_PERMANENT
     if version == 6:
@@ -502,7 +534,7 @@ class IPRoute(netlink.NetlinkSocket):
       self._WaitForAddress(sock, address, ifindex)
 
   def DelAddress(self, address, prefixlen, ifindex):
-    self._Address(6 if ":" in address else 4,
+    self._Address(csocket.AddressVersion(address),
                   RTM_DELADDR, address, prefixlen, 0, 0, ifindex)
 
   def GetAddress(self, address, ifindex=0):
@@ -553,7 +585,7 @@ class IPRoute(netlink.NetlinkSocket):
                 nexthop, dev, None, None)
 
   def GetRoutes(self, dest, oif, mark, uid, iif=None):
-    version = 6 if ":" in dest else 4
+    version = csocket.AddressVersion(dest)
     prefixlen = {4: 32, 6: 128}[version]
     self._Route(version, RTPROT_STATIC, RTM_GETROUTE, 0, dest, prefixlen, None,
                 oif, mark, uid, iif=iif)
@@ -611,18 +643,41 @@ class IPRoute(netlink.NetlinkSocket):
     flags = netlink.NLM_F_REQUEST | netlink.NLM_F_ACK
     return self._SendNlRequest(RTM_DELLINK, ifinfo, flags)
 
-  def GetIfIndex(self, dev_name):
+  def GetIfinfo(self, dev_name):
+    """Fetches information about the specified interface.
+
+    Args:
+      dev_name: A string, the name of the interface.
+
+    Returns:
+      A tuple containing an IfinfoMsg struct and raw, undecoded attributes.
+    """
     ifinfo = IfinfoMsg().Pack()
     ifinfo += self._NlAttrStr(IFLA_IFNAME, dev_name)
     self._SendNlRequest(RTM_GETLINK, ifinfo, netlink.NLM_F_REQUEST)
     hdr, data = cstruct.Read(self._Recv(), netlink.NLMsgHdr)
     if hdr.type == RTM_NEWLINK:
-      return IfinfoMsg(data).index
+      return cstruct.Read(data, IfinfoMsg)
     elif hdr.type == netlink.NLMSG_ERROR:
       error = netlink.NLMsgErr(data).error
       raise IOError(error, os.strerror(-error))
     else:
       raise ValueError("Unknown Netlink Message Type %d" % hdr.type)
+
+  def GetIfIndex(self, dev_name):
+    """Returns the interface index for the specified interface."""
+    ifinfo, _ = self.GetIfinfo(dev_name)
+    return ifinfo.index
+
+  def GetIfaceStats(self, dev_name):
+    """Returns an RtnlLinkStats64 stats object for the specified interface."""
+    _, attrs = self.GetIfinfo(dev_name)
+    attrs = self._ParseAttributes(RTM_NEWLINK, IfinfoMsg, attrs)
+    return attrs["IFLA_STATS64"]
+
+  def GetRxTxPackets(self, dev_name):
+    stats = self.GetIfaceStats(dev_name)
+    return stats.rx_packets, stats.tx_packets
 
   def CreateVirtualTunnelInterface(self, dev_name, local_addr, remote_addr,
                                    i_key=None, o_key=None):

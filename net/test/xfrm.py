@@ -22,6 +22,8 @@ import os
 from socket import *  # pylint: disable=wildcard-import
 import struct
 
+import net_test
+import csocket
 import cstruct
 import netlink
 
@@ -110,9 +112,12 @@ XFRM_MODE_MAX = 5
 XFRM_POLICY_ALLOW = 0
 XFRM_POLICY_BLOCK = 1
 
-# Flags.
+# Policy flags.
 XFRM_POLICY_LOCALOK = 1
 XFRM_POLICY_ICMP = 2
+
+# State flags.
+XFRM_STATE_AF_UNSPEC = 32
 
 # XFRM algorithm names, as defined in net/xfrm/xfrm_algo.c.
 XFRM_EALG_CBC_AES = "cbc(aes)"
@@ -147,7 +152,7 @@ XfrmAlgoAead = cstruct.Struct("XfrmAlgoAead", "=64AII", "name key_len icv_len")
 XfrmStats = cstruct.Struct(
     "XfrmStats", "=III", "replay_window replay integrity_failed")
 
-XfrmId = cstruct.Struct("XfrmId", "=16sIBxxx", "daddr spi proto")
+XfrmId = cstruct.Struct("XfrmId", "!16sIBxxx", "daddr spi proto")
 
 XfrmUserTmpl = cstruct.Struct(
     "XfrmUserTmpl", "=SHxx16sIBBBxIII",
@@ -165,8 +170,11 @@ XfrmUsersaInfo = cstruct.Struct(
 XfrmUserSpiInfo = cstruct.Struct(
     "XfrmUserSpiInfo", "=SII", "info min max", [XfrmUsersaInfo])
 
+# Technically the family is a 16-bit field, but only a few families are in use,
+# and if we pretend it's 8 bits (i.e., use "Bx" instead of "H") we can think
+# of the whole structure as being in network byte order.
 XfrmUsersaId = cstruct.Struct(
-    "XfrmUsersaInfo", "=16sIHBx", "daddr spi family proto")
+    "XfrmUsersaId", "!16sIBxBx", "daddr spi family proto")
 
 # xfrm.h - struct xfrm_userpolicy_info
 XfrmUserpolicyInfo = cstruct.Struct(
@@ -204,6 +212,9 @@ IPSEC_PROTO_ANY	= 255
 # TODO: move this somewhere more appropriate when possible
 EspHdr = cstruct.Struct("EspHdr", "!II", "spi seqnum")
 
+# Local constants.
+_DEFAULT_REPLAY_WINDOW = 4
+
 
 def RawAddress(addr):
   """Converts an IP address string to binary format."""
@@ -217,6 +228,29 @@ def PaddedAddress(addr):
   if len(padded) < 16:
     padded += "\x00" * (16 - len(padded))
   return padded
+
+
+def EmptySelector(family):
+  """A selector that matches all packets of the specified address family."""
+  return XfrmSelector(family=family)
+
+
+def SrcDstSelector(src, dst):
+  """A selector that matches packets between the specified IP addresses."""
+  srcver = csocket.AddressVersion(src)
+  dstver = csocket.AddressVersion(dst)
+  if srcver != dstver:
+    raise ValueError("Cross-address family selector specified: %s -> %s" %
+                     (src, dst))
+  prefixlen = net_test.AddressLengthBits(srcver)
+  family = net_test.GetAddressFamily(srcver)
+  return XfrmSelector(saddr=PaddedAddress(src), daddr=PaddedAddress(dst),
+      prefixlen_s=prefixlen, prefixlen_d=prefixlen, family=family)
+
+
+def ExactMatchMark(mark):
+  """An XfrmMark that matches only the specified mark."""
+  return XfrmMark((mark, 0xffffffff))
 
 
 class Xfrm(netlink.NetlinkSocket):
@@ -243,6 +277,8 @@ class Xfrm(netlink.NetlinkSocket):
       struct_type = XfrmUsersaId
     elif command == XFRM_MSG_ALLOCSPI:
       struct_type = XfrmUserSpiInfo
+    elif command == XFRM_MSG_NEWPOLICY:
+      struct_type = XfrmUserpolicyInfo
     else:
       struct_type = None
 
@@ -320,38 +356,73 @@ class Xfrm(netlink.NetlinkSocket):
       msg += self._NlAttr(attr_type, attr_msg.Pack())
     return self._SendNlRequest(msg_type, msg, flags)
 
-  def AddSaInfo(self, selector, xfrm_id, saddr, lifetimes, reqid, family, mode,
-                replay_window, flags, nlattrs):
-    # The kernel ignores these on input.
-    cur = "\x00" * len(XfrmLifetimeCur)
-    stats = "\x00" * len(XfrmStats)
-    seq = 0
-    sa = XfrmUsersaInfo((selector, xfrm_id, saddr, lifetimes, cur, stats, seq,
-                         reqid, family, mode, replay_window, flags))
-    msg = sa.Pack() + nlattrs
-    flags = netlink.NLM_F_REQUEST | netlink.NLM_F_ACK
-    self._SendNlRequest(XFRM_MSG_NEWSA, msg, flags)
+  def AddSaInfo(self, src, dst, spi, mode, reqid, encryption, auth_trunc, encap,
+                mark, output_mark):
+    """Adds an IPsec security association.
 
-  def AddMinimalSaInfo(self, src, dst, spi, proto, mode, reqid,
-                       encryption, encryption_key,
-                       auth_trunc, auth_trunc_key, encap,
-                       mark, mark_mask, output_mark, sel_family=AF_UNSPEC):
-    selector = XfrmSelector(family=sel_family)
+    Args:
+      src: A string, the source IP address. May be a wildcard in transport mode.
+      dst: A string, the destination IP address. Forms part of the XFRM ID, and
+        must match the destination address of the packets sent by this SA.
+      spi: An integer, the SPI.
+      mode: An IPsec mode such as XFRM_MODE_TRANSPORT.
+      reqid: A request ID. Can be used in policies to match the SA.
+      encryption: A tuple of an XfrmAlgo and raw key bytes, or None.
+      auth_trunc: A tuple of an XfrmAlgoAuth and raw key bytes, or None.
+      encap: An XfrmEncapTmpl structure, or None.
+      mark: A mark match specifier, such as returned by ExactMatchMark(), or
+        None for an SA that matches all possible marks.
+      output_mark: An integer, the output mark. 0 means unset.
+    """
+    proto = IPPROTO_ESP
     xfrm_id = XfrmId((PaddedAddress(dst), spi, proto))
     family = AF_INET6 if ":" in dst else AF_INET
-    nlattrs = self._NlAttr(XFRMA_ALG_CRYPT,
-                           encryption.Pack() + encryption_key)
-    nlattrs += self._NlAttr(XFRMA_ALG_AUTH_TRUNC,
-                            auth_trunc.Pack() + auth_trunc_key)
+
+    nlattrs = ""
+    if encryption is not None:
+      enc, key = encryption
+      nlattrs += self._NlAttr(XFRMA_ALG_CRYPT, enc.Pack() + key)
+
+    if auth_trunc is not None:
+      auth, key = auth_trunc
+      nlattrs += self._NlAttr(XFRMA_ALG_AUTH_TRUNC, auth.Pack() + key)
+
     # if a user provides either mark or mask, then we send the mark attribute
-    if mark or mark_mask:
-      nlattrs += self._NlAttr(XFRMA_MARK, XfrmMark((mark, mark_mask)).Pack())
+    if mark is not None:
+      nlattrs += self._NlAttr(XFRMA_MARK, mark.Pack())
     if encap is not None:
       nlattrs += self._NlAttr(XFRMA_ENCAP, encap.Pack())
     if output_mark is not None:
       nlattrs += self._NlAttrU32(XFRMA_OUTPUT_MARK, output_mark)
-    self.AddSaInfo(selector, xfrm_id, PaddedAddress(src), NO_LIFETIME_CFG,
-                   reqid, family, mode, 4, 0, nlattrs)
+
+    # The kernel ignores these on input, so make them empty.
+    cur = XfrmLifetimeCur()
+    stats = XfrmStats()
+    seq = 0
+    replay = _DEFAULT_REPLAY_WINDOW
+
+    # The XFRM_STATE_AF_UNSPEC flag determines how AF_UNSPEC selectors behave.
+    #
+    # - If the flag is not set, an AF_UNSPEC selector has its family changed to
+    #   the SA family, which in our case is the address family of dst.
+    # - If the flag is set, an AF_UNSPEC selector is left as is. In transport
+    #   mode this fails with EPROTONOSUPPORT, but in tunnel mode, it results in
+    #   a dual-stack SA that can tunnel both IPv4 and IPv6 packets.
+    #
+    # This allows us to pass an empty selector to the kernel regardless of which
+    # mode we're in: when creating transport mode SAs, the kernel will pick the
+    # selector family based on the SA family, and when creating tunnel mode SAs,
+    # we'll just create SAs that select both IPv4 and IPv6 traffic, and leave it
+    # up to the policy selectors to determine what traffic we actually want to
+    # transform.
+    flags = XFRM_STATE_AF_UNSPEC if mode == XFRM_MODE_TUNNEL else 0
+    selector = EmptySelector(AF_UNSPEC)
+
+    sa = XfrmUsersaInfo((selector, xfrm_id, PaddedAddress(src), NO_LIFETIME_CFG,
+                         cur, stats, seq, reqid, family, mode, replay, flags))
+    msg = sa.Pack() + nlattrs
+    flags = netlink.NLM_F_REQUEST | netlink.NLM_F_ACK
+    self._SendNlRequest(XFRM_MSG_NEWSA, msg, flags)
 
   def DeleteSaInfo(self, daddr, spi, proto):
     # TODO: deletes take a mark as well.

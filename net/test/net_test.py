@@ -99,6 +99,13 @@ def GetAddressFamily(version):
 def AddressLengthBits(version):
   return {4: 32, 6: 128}[version]
 
+def GetAddressVersion(address):
+  if ":" not in address:
+    return 4
+  if address.startswith("::ffff"):
+    return 5
+  return 6
+
 def SetSocketTos(s, tos):
   level = {AF_INET: SOL_IP, AF_INET6: SOL_IPV6}[s.family]
   option = {AF_INET: IP_TOS, AF_INET6: IPV6_TCLASS}[s.family]
@@ -193,14 +200,14 @@ def CreateSocketPair(family, socktype, addr):
 
 
 def GetInterfaceIndex(ifname):
-  s = IPv4PingSocket()
+  s = UDPSocket(AF_INET)
   ifr = struct.pack("%dsi" % IFNAMSIZ, ifname, 0)
   ifr = fcntl.ioctl(s, scapy.SIOCGIFINDEX, ifr)
   return struct.unpack("%dsi" % IFNAMSIZ, ifr)[1]
 
 
 def SetInterfaceHWAddr(ifname, hwaddr):
-  s = IPv4PingSocket()
+  s = UDPSocket(AF_INET)
   hwaddr = hwaddr.replace(":", "")
   hwaddr = hwaddr.decode("hex")
   if len(hwaddr) != 6:
@@ -210,7 +217,7 @@ def SetInterfaceHWAddr(ifname, hwaddr):
 
 
 def SetInterfaceState(ifname, up):
-  s = IPv4PingSocket()
+  s = UDPSocket(AF_INET)
   ifr = struct.pack("%dsH" % IFNAMSIZ, ifname, 0)
   ifr = fcntl.ioctl(s, scapy.SIOCGIFFLAGS, ifr)
   _, flags = struct.unpack("%dsH" % IFNAMSIZ, ifr)
