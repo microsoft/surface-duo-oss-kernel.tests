@@ -395,7 +395,7 @@ class IPRoute(netlink.NetlinkSocket):
       try:
         self._SendNlRequest(RTM_DELRULE, rtmsg)
       except IOError, e:
-        if e.errno == -errno.ENOENT:
+        if e.errno == errno.ENOENT:
           break
         else:
           raise

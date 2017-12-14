@@ -467,6 +467,18 @@ class XfrmOutputMarkTest(xfrm_base.XfrmBaseTest):
     sainfo, attributes = dump[0]
     self.assertEquals(mark, attributes["XFRMA_OUTPUT_MARK"])
 
+  def testInvalidAlgorithms(self):
+    key = "af442892cdcd0ef650e9c299f9a8436a".decode("hex")
+    invalid_auth = (xfrm.XfrmAlgoAuth(("invalid(algo)", 128, 96)), key)
+    invalid_crypt = (xfrm.XfrmAlgo(("invalid(algo)", 128)), key)
+    with self.assertRaisesErrno(ENOSYS):
+        self.xfrm.AddSaInfo(TEST_ADDR1, TEST_ADDR2, 0x1234,
+            xfrm.XFRM_MODE_TRANSPORT, 0, xfrm_base._ALGO_CBC_AES_256,
+            invalid_auth, None, None, 0)
+    with self.assertRaisesErrno(ENOSYS):
+        self.xfrm.AddSaInfo(TEST_ADDR1, TEST_ADDR2, 0x1234,
+            xfrm.XFRM_MODE_TRANSPORT, 0, invalid_crypt,
+            xfrm_base._ALGO_HMAC_SHA1, None, None, 0)
 
 if __name__ == "__main__":
   unittest.main()
