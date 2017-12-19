@@ -381,6 +381,64 @@ class XfrmFunctionalTest(xfrm_base.XfrmBaseTest):
   def testNullEncryptionV6(self):
     self.CheckNullEncryption(6)
 
+  def _CheckGlobalPoliciesByMark(self, version):
+    """Tests that global policies may differ by only the mark."""
+    family = net_test.GetAddressFamily(version)
+    sel = xfrm.EmptySelector(family)
+    # Pick 2 arbitrary mark values.
+    mark1 =xfrm.XfrmMark(mark=0xf00, mask=xfrm_base.MARK_MASK_ALL)
+    mark2 =xfrm.XfrmMark(mark=0xf00d, mask=xfrm_base.MARK_MASK_ALL)
+    # Create a global policy.
+    policy = xfrm_base.UserPolicy(xfrm.XFRM_POLICY_OUT, sel)
+    tmpl = xfrm_base.UserTemplate(AF_UNSPEC, 0xfeed, 0, None)
+    # Create the policy with the first mark.
+    self.xfrm.AddPolicyInfo(policy, tmpl, mark1)
+    # Create the same policy but with the second (different) mark.
+    self.xfrm.AddPolicyInfo(policy, tmpl, mark2)
+    # Delete the policies individually
+    self.xfrm.DeletePolicyInfo(sel, xfrm.XFRM_POLICY_OUT, mark1)
+    self.xfrm.DeletePolicyInfo(sel, xfrm.XFRM_POLICY_OUT, mark2)
+
+  def testGlobalPoliciesByMarkV4(self):
+    self._CheckGlobalPoliciesByMark(4)
+
+  def testGlobalPoliciesByMarkV6(self):
+    self._CheckGlobalPoliciesByMark(6)
+
+  def _CheckUpdatePolicy(self, version):
+    """Tests that we can can update the template on a policy."""
+    family = net_test.GetAddressFamily(version)
+    tmpl1 = xfrm_base.UserTemplate(family, 0xdead, 0, None)
+    tmpl2 = xfrm_base.UserTemplate(family, 0xbeef, 0, None)
+    sel = xfrm.EmptySelector(family)
+    policy = xfrm_base.UserPolicy(xfrm.XFRM_POLICY_OUT, sel)
+    mark = xfrm.XfrmMark(mark=0xf00, mask=xfrm_base.MARK_MASK_ALL)
+
+    def _CheckTemplateMatch(tmpl):
+      """Dump the SPD and match a single template on a single policy."""
+      dump = self.xfrm.DumpPolicyInfo()
+      self.assertEquals(1, len(dump))
+      _, attributes = dump[0]
+      self.assertEquals(attributes['XFRMA_TMPL'], tmpl)
+
+    # Create a new policy using update.
+    self.xfrm.UpdatePolicyInfo(policy, tmpl1, mark)
+    # NEWPOLICY will not update the existing policy. This checks both that
+    # UPDPOLICY created a policy and that NEWPOLICY will not perform updates.
+    _CheckTemplateMatch(tmpl1)
+    with self.assertRaisesErrno(EEXIST):
+      self.xfrm.AddPolicyInfo(policy, tmpl2, mark)
+    # Update the policy using UPDPOLICY.
+    self.xfrm.UpdatePolicyInfo(policy, tmpl2, mark)
+    # There should only be one policy after update, and it should have the
+    # updated template.
+    _CheckTemplateMatch(tmpl2)
+
+  def testUpdatePolicyV4(self):
+    self._CheckUpdatePolicy(4)
+
+  def testUpdatePolicyV6(self):
+    self._CheckUpdatePolicy(6)
 
 class XfrmOutputMarkTest(xfrm_base.XfrmBaseTest):
 
