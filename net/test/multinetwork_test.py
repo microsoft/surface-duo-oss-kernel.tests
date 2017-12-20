@@ -1139,7 +1139,7 @@ class UidRoutingTest(multinetwork_base.MultiNetworkBaseTest):
       rtmsg, _ = routes[0]
       self.assertEquals(iproute.RTN_UNREACHABLE, rtmsg.type)
     except IOError, e:
-      if int(e.errno) != -int(errno.ENETUNREACH):
+      if int(e.errno) != int(errno.ENETUNREACH):
         raise e
 
   def ExpectRoute(self, addr, oif, mark, uid):
