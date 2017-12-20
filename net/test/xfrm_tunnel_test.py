@@ -125,6 +125,7 @@ class XfrmTunnelTest(xfrm_base.XfrmBaseTest):
         xfrm_base._ALGO_CBC_AES_256,
         xfrm_base._ALGO_HMAC_SHA1,
         None,
+        None,
         mark,
         output_mark)
 
