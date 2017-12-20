@@ -126,6 +126,7 @@ XFRM_AALG_HMAC_SHA1 = "hmac(sha1)"
 XFRM_AALG_HMAC_SHA256 = "hmac(sha256)"
 XFRM_AALG_HMAC_SHA384 = "hmac(sha384)"
 XFRM_AALG_HMAC_SHA512 = "hmac(sha512)"
+XFRM_AEAD_GCM_AES = "rfc4106(gcm(aes))"
 
 # Data structure formats.
 # These aren't constants, they're classes. So, pylint: disable=invalid-name
@@ -356,8 +357,8 @@ class Xfrm(netlink.NetlinkSocket):
       msg += self._NlAttr(attr_type, attr_msg.Pack())
     return self._SendNlRequest(msg_type, msg, flags)
 
-  def AddSaInfo(self, src, dst, spi, mode, reqid, encryption, auth_trunc, encap,
-                mark, output_mark):
+  def AddSaInfo(self, src, dst, spi, mode, reqid, encryption, auth_trunc, aead,
+                encap, mark, output_mark):
     """Adds an IPsec security association.
 
     Args:
@@ -369,6 +370,7 @@ class Xfrm(netlink.NetlinkSocket):
       reqid: A request ID. Can be used in policies to match the SA.
       encryption: A tuple of an XfrmAlgo and raw key bytes, or None.
       auth_trunc: A tuple of an XfrmAlgoAuth and raw key bytes, or None.
+      aead: A tuple of an XfrmAlgoAead and raw key bytes, or None.
       encap: An XfrmEncapTmpl structure, or None.
       mark: A mark match specifier, such as returned by ExactMatchMark(), or
         None for an SA that matches all possible marks.
@@ -386,6 +388,10 @@ class Xfrm(netlink.NetlinkSocket):
     if auth_trunc is not None:
       auth, key = auth_trunc
       nlattrs += self._NlAttr(XFRMA_ALG_AUTH_TRUNC, auth.Pack() + key)
+
+    if aead is not None:
+      aead_alg, key = aead
+      nlattrs += self._NlAttr(XFRMA_ALG_AEAD, aead_alg.Pack() + key)
 
     # if a user provides either mark or mask, then we send the mark attribute
     if mark is not None:
