@@ -126,6 +126,7 @@ XFRM_AALG_HMAC_SHA1 = "hmac(sha1)"
 XFRM_AALG_HMAC_SHA256 = "hmac(sha256)"
 XFRM_AALG_HMAC_SHA384 = "hmac(sha384)"
 XFRM_AALG_HMAC_SHA512 = "hmac(sha512)"
+XFRM_AEAD_GCM_AES = "rfc4106(gcm(aes))"
 
 # Data structure formats.
 # These aren't constants, they're classes. So, pylint: disable=invalid-name
@@ -183,7 +184,7 @@ XfrmUserpolicyInfo = cstruct.Struct(
     [XfrmSelector, XfrmLifetimeCfg, XfrmLifetimeCur])
 
 XfrmUserpolicyId = cstruct.Struct(
-        "XfrmUserpolicyId", "=SIB", "sel index dir", [XfrmSelector])
+        "XfrmUserpolicyId", "=SIBxxx", "sel index dir", [XfrmSelector])
 
 XfrmUsersaFlush = cstruct.Struct("XfrmUsersaFlush", "=B", "proto")
 
@@ -309,32 +310,54 @@ class Xfrm(netlink.NetlinkSocket):
 
     return name, data
 
+  def _UpdatePolicyInfo(self, msg, policy, tmpl, mark):
+    """Send a policy to the Security Policy Database"""
+    nlattrs = []
+    if tmpl is not None:
+      nlattrs.append((XFRMA_TMPL, tmpl))
+    if mark is not None:
+      nlattrs.append((XFRMA_MARK, mark))
+    self.SendXfrmNlRequest(msg, policy, nlattrs)
+
   def AddPolicyInfo(self, policy, tmpl, mark):
     """Add a new policy to the Security Policy Database
+
+    If the policy exists, then return an error (EEXIST).
 
     Args:
       policy: an unpacked XfrmUserpolicyInfo cstruct
       tmpl: an unpacked XfrmUserTmpl cstruct
       mark: an unpacked XfrmMark cstruct
     """
-    nlattrs = []
-    if tmpl:
-      nlattrs.append((XFRMA_TMPL, tmpl))
-    if mark:
-      nlattrs.append((XFRMA_MARK, mark))
-    self.SendXfrmNlRequest(XFRM_MSG_NEWPOLICY, policy, nlattrs)
+    self._UpdatePolicyInfo(XFRM_MSG_NEWPOLICY, policy, tmpl, mark)
 
-  def DeletePolicyInfo(self, selector, direction):
+  def UpdatePolicyInfo(self, policy, tmpl, mark):
+    """Update an existing policy in the Security Policy Database
+
+    If the policy does not exist, then create it; otherwise, update the
+    existing policy record.
+
+    Args:
+      policy: an unpacked XfrmUserpolicyInfo cstruct
+      tmpl: an unpacked XfrmUserTmpl cstruct of attributes to update
+      mark: an unpacked XfrmMark to match the existing policy or None
+    """
+    self._UpdatePolicyInfo(XFRM_MSG_UPDPOLICY, policy, tmpl, mark)
+
+  def DeletePolicyInfo(self, selector, direction, mark):
     """Delete a policy from the Security Policy Database
 
     Args:
-      saddr: source address of the selector
-      daddr: destination address of the selector
-      family: the address family of the selector
+      selector: an XfrmSelector matching the policy to delete
       direction: policy direction
+      mark: an unpacked XfrmMark to match the policy or None
     """
+    nlattrs = []
+    if mark is not None:
+      nlattrs.append((XFRMA_MARK, mark))
     self.SendXfrmNlRequest(XFRM_MSG_DELPOLICY,
-                           XfrmUserpolicyId(sel=selector, dir=direction))
+                           XfrmUserpolicyId(sel=selector, dir=direction),
+                           nlattrs)
 
   # TODO: this function really needs to be in netlink.py
   def SendXfrmNlRequest(self, msg_type, req, nlattrs=None,
@@ -350,14 +373,14 @@ class Xfrm(netlink.NetlinkSocket):
           provided, an ACK response is assumed.
     """
     msg = req.Pack()
-    if not nlattrs:
+    if nlattrs is None:
       nlattrs = []
     for attr_type, attr_msg in nlattrs:
       msg += self._NlAttr(attr_type, attr_msg.Pack())
     return self._SendNlRequest(msg_type, msg, flags)
 
-  def AddSaInfo(self, src, dst, spi, mode, reqid, encryption, auth_trunc, encap,
-                mark, output_mark):
+  def AddSaInfo(self, src, dst, spi, mode, reqid, encryption, auth_trunc, aead,
+                encap, mark, output_mark):
     """Adds an IPsec security association.
 
     Args:
@@ -369,6 +392,7 @@ class Xfrm(netlink.NetlinkSocket):
       reqid: A request ID. Can be used in policies to match the SA.
       encryption: A tuple of an XfrmAlgo and raw key bytes, or None.
       auth_trunc: A tuple of an XfrmAlgoAuth and raw key bytes, or None.
+      aead: A tuple of an XfrmAlgoAead and raw key bytes, or None.
       encap: An XfrmEncapTmpl structure, or None.
       mark: A mark match specifier, such as returned by ExactMatchMark(), or
         None for an SA that matches all possible marks.
@@ -386,6 +410,10 @@ class Xfrm(netlink.NetlinkSocket):
     if auth_trunc is not None:
       auth, key = auth_trunc
       nlattrs += self._NlAttr(XFRMA_ALG_AUTH_TRUNC, auth.Pack() + key)
+
+    if aead is not None:
+      aead_alg, key = aead
+      nlattrs += self._NlAttr(XFRMA_ALG_AEAD, aead_alg.Pack() + key)
 
     # if a user provides either mark or mask, then we send the mark attribute
     if mark is not None:
