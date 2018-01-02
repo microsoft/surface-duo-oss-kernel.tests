@@ -24,6 +24,7 @@ import struct
 import sys
 
 import cstruct
+import util
 
 ### Base netlink constants. See include/uapi/linux/netlink.h.
 NETLINK_ROUTE = 0
@@ -56,11 +57,6 @@ NLA_ALIGNTO = 4
 # These can appear more than once but don't seem to contain any data.
 DUP_ATTRS_OK = ["INET_DIAG_NONE", "IFLA_PAD"]
 
-def PaddedLength(length):
-  # TODO: This padding is probably overly simplistic.
-  return NLA_ALIGNTO * ((length / NLA_ALIGNTO) + (length % NLA_ALIGNTO != 0))
-
-
 class NetlinkSocket(object):
   """A basic netlink socket object."""
 
@@ -76,7 +72,7 @@ class NetlinkSocket(object):
   def _NlAttr(self, nla_type, data):
     datalen = len(data)
     # Pad the data if it's not a multiple of NLA_ALIGNTO bytes long.
-    padding = "\x00" * (PaddedLength(datalen) - datalen)
+    padding = "\x00" * util.GetPadLength(NLA_ALIGNTO, datalen)
     nla_len = datalen + len(NLAttr)
     return NLAttr((nla_len, nla_type)).Pack() + data + padding
 
@@ -111,7 +107,7 @@ class NetlinkSocket(object):
 
     # Read the data.
     datalen = nla.nla_len - len(nla)
-    padded_len = PaddedLength(nla.nla_len) - len(nla)
+    padded_len = util.GetPadLength(NLA_ALIGNTO, datalen) + datalen
     nla_data, data = data[:datalen], data[padded_len:]
 
     return nla, nla_data, data
