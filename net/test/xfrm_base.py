@@ -374,3 +374,49 @@ class XfrmBaseTest(multinetwork_base.MultiNetworkBaseTest):
     esp_hdr, _ = cstruct.Read(str(packet.payload), xfrm.EspHdr)
     self.assertEquals(xfrm.EspHdr((spi, seq)), esp_hdr)
     return packet
+
+  def CreateTunnel(self, direction, selector, src, dst, spi, encryption,
+                   auth_trunc, mark, output_mark):
+    """Create an XFRM Tunnel Consisting of a Policy and an SA.
+
+    Create a unidirectional XFRM tunnel, which entails one Policy and one
+    security association.
+
+    Args:
+      direction: XFRM_POLICY_IN or XFRM_POLICY_OUT
+      selector: An XfrmSelector that specifies the packets to be transformed.
+        This is only applied to the policy; the selector in the SA is always
+        empty. If the passed-in selector is None, then the tunnel is made
+        dual-stack. This requires two policies, one for IPv4 and one for IPv6.
+      src: The source address of the tunneled packets
+      dst: The destination address of the tunneled packets
+      spi: The SPI for the IPsec SA that encapsulates the tunneled packet
+      encryption: A tuple (XfrmAlgo, key), the encryption parameters.
+      auth_trunc: A tuple (XfrmAlgoAuth, key), the authentication parameters.
+      mark: An XfrmMark, the mark used for selecting packets to be tunneled, and
+        for matching the security policy and security association. None means
+        unspecified.
+      output_mark: The mark used to select the underlying network for packets
+        outbound from xfrm. None means unspecified.
+    """
+    outer_family = net_test.GetAddressFamily(net_test.GetAddressVersion(dst))
+
+    self.xfrm.AddSaInfo(
+        src, dst,
+        spi, xfrm.XFRM_MODE_TUNNEL, 0,
+        encryption,
+        auth_trunc,
+        None,
+        None,
+        mark,
+        output_mark)
+
+    if selector is None:
+      selectors = [xfrm.EmptySelector(AF_INET), xfrm.EmptySelector(AF_INET6)]
+    else:
+      selectors = [selector]
+
+    for selector in selectors:
+      policy = UserPolicy(direction, selector)
+      tmpl = UserTemplate(outer_family, spi, 0, (src, dst))
+      self.xfrm.AddPolicyInfo(policy, tmpl, mark)
