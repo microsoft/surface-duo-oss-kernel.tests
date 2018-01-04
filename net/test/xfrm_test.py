@@ -27,6 +27,7 @@ import csocket
 import cstruct
 import multinetwork_base
 import net_test
+import packets
 import xfrm
 import xfrm_base
 
@@ -100,6 +101,11 @@ class XfrmFunctionalTest(xfrm_base.XfrmBaseTest):
     daddr, dport = s.getpeername()[:2]
     reqid = 0
 
+    desc, pkt = packets.UDP(6, saddr, daddr, sport=sport)
+    s.sendto(net_test.UDP_PAYLOAD, (TEST_ADDR1, 53))
+    self.ExpectPacketOn(netid, "Send after socket, expected %s" % desc, pkt)
+
+
     xfrm_base.ApplySocketPolicy(s, AF_INET6, xfrm.XFRM_POLICY_OUT,
                                 TEST_SPI, reqid, None)
 
@@ -133,9 +139,9 @@ class XfrmFunctionalTest(xfrm_base.XfrmBaseTest):
     s2 = socket(AF_INET6, SOCK_DGRAM, 0)
     self.SelectInterface(s2, netid, "mark")
     s2.sendto(net_test.UDP_PAYLOAD, (TEST_ADDR1, 53))
-    packets = self.ReadAllPacketsOn(netid)
-    self.assertEquals(1, len(packets))
-    packet = packets[0]
+    pkts = self.ReadAllPacketsOn(netid)
+    self.assertEquals(1, len(pkts))
+    packet = pkts[0]
     self.assertEquals(IPPROTO_UDP, packet.nh)
 
     # Deleting the SA causes the first socket to return errors again.
@@ -143,6 +149,21 @@ class XfrmFunctionalTest(xfrm_base.XfrmBaseTest):
     self.assertRaisesErrno(
         EAGAIN,
         s.sendto, net_test.UDP_PAYLOAD, (TEST_ADDR1, 53))
+
+    # Clear the socket policy and expect a cleartext packet.
+    xfrm_base.SetPolicySockopt(s, AF_INET6, None)
+    s.sendto(net_test.UDP_PAYLOAD, (TEST_ADDR1, 53))
+    self.ExpectPacketOn(netid, "Send after clear, expected %s" % desc, pkt)
+
+    # Clearing the policy twice is safe.
+    xfrm_base.SetPolicySockopt(s, AF_INET6, None)
+    s.sendto(net_test.UDP_PAYLOAD, (TEST_ADDR1, 53))
+    self.ExpectPacketOn(netid, "Send after clear 2, expected %s" % desc, pkt)
+
+    # Clearing if a policy was never set is safe.
+    s = socket(AF_INET6, SOCK_DGRAM, 0)
+    xfrm_base.SetPolicySockopt(s, AF_INET6, None)
+
 
   # TODO: Should we completely re-write this using null encryption and null
   # authentication? We could then assemble and disassemble packets for each
@@ -204,9 +225,9 @@ class XfrmFunctionalTest(xfrm_base.XfrmBaseTest):
     # s.send("foo")  # TODO: WHY DOES THIS NOT WORK?
 
     # Expect to see an UDP encapsulated packet.
-    packets = self.ReadAllPacketsOn(netid)
-    self.assertEquals(1, len(packets))
-    packet = packets[0]
+    pkts = self.ReadAllPacketsOn(netid)
+    self.assertEquals(1, len(pkts))
+    packet = pkts[0]
     self.assertIsUdpEncapEsp(packet, out_spi, 1, 52)
 
     # Now test the receive path. Because we don't know how to decrypt packets,

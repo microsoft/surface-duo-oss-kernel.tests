@@ -18,6 +18,7 @@ from socket import *  # pylint: disable=wildcard-import
 from scapy import all as scapy
 import struct
 
+import csocket
 import cstruct
 import multinetwork_base
 import net_test
@@ -100,6 +101,15 @@ def UserTemplate(family, spi, reqid, tun_addrs):
   return template
 
 
+def SetPolicySockopt(sock, family, opt_data):
+  optlen = len(opt_data) if opt_data is not None else 0
+  if family == AF_INET:
+    csocket.Setsockopt(sock, IPPROTO_IP, xfrm.IP_XFRM_POLICY, opt_data, optlen)
+  else:
+    csocket.Setsockopt(sock, IPPROTO_IPV6, xfrm.IPV6_XFRM_POLICY, opt_data,
+                       optlen)
+
+
 def ApplySocketPolicy(sock, family, direction, spi, reqid, tun_addrs):
   """Create and apply an ESP policy to a socket.
 
@@ -124,10 +134,7 @@ def ApplySocketPolicy(sock, family, direction, spi, reqid, tun_addrs):
 
   # Set the policy and template on our socket.
   opt_data = policy.Pack() + template.Pack()
-  if family == AF_INET:
-    sock.setsockopt(IPPROTO_IP, xfrm.IP_XFRM_POLICY, opt_data)
-  else:
-    sock.setsockopt(IPPROTO_IPV6, xfrm.IPV6_XFRM_POLICY, opt_data)
+  SetPolicySockopt(sock, family, opt_data)
 
 
 def GetEspPacketLength(mode, version, encap, payload):
