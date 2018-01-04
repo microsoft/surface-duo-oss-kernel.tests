@@ -429,8 +429,8 @@ class XfrmFunctionalTest(xfrm_base.XfrmBaseTest):
     family = net_test.GetAddressFamily(version)
     sel = xfrm.EmptySelector(family)
     # Pick 2 arbitrary mark values.
-    mark1 =xfrm.XfrmMark(mark=0xf00, mask=xfrm_base.MARK_MASK_ALL)
-    mark2 =xfrm.XfrmMark(mark=0xf00d, mask=xfrm_base.MARK_MASK_ALL)
+    mark1 = xfrm.XfrmMark(mark=0xf00, mask=xfrm_base.MARK_MASK_ALL)
+    mark2 = xfrm.XfrmMark(mark=0xf00d, mask=xfrm_base.MARK_MASK_ALL)
     # Create a global policy.
     policy = xfrm_base.UserPolicy(xfrm.XFRM_POLICY_OUT, sel)
     tmpl = xfrm_base.UserTemplate(AF_UNSPEC, 0xfeed, 0, None)
@@ -482,6 +482,23 @@ class XfrmFunctionalTest(xfrm_base.XfrmBaseTest):
 
   def testUpdatePolicyV6(self):
     self._CheckUpdatePolicy(6)
+
+  def _CheckPolicyDifferByDirection(self,version):
+    """Tests that policies can differ only by direction."""
+    family = net_test.GetAddressFamily(version)
+    tmpl = xfrm_base.UserTemplate(family, 0xdead, 0, None)
+    sel = xfrm.EmptySelector(family)
+    mark = xfrm.XfrmMark(mark=0xf00, mask=xfrm_base.MARK_MASK_ALL)
+    policy = xfrm_base.UserPolicy(xfrm.XFRM_POLICY_OUT, sel)
+    self.xfrm.AddPolicyInfo(policy, tmpl, mark)
+    policy = xfrm_base.UserPolicy(xfrm.XFRM_POLICY_IN, sel)
+    self.xfrm.AddPolicyInfo(policy, tmpl, mark)
+
+  def testPolicyDifferByDirectionV4(self):
+    self._CheckPolicyDifferByDirection(4)
+
+  def testPolicyDifferByDirectionV6(self):
+    self._CheckPolicyDifferByDirection(6)
 
 class XfrmOutputMarkTest(xfrm_base.XfrmBaseTest):
 
