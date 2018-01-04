@@ -111,6 +111,8 @@ class MultiNetworkBaseTest(net_test.NetworkTest):
   # For convenience.
   IPV4_ADDR = net_test.IPV4_ADDR
   IPV6_ADDR = net_test.IPV6_ADDR
+  IPV4_ADDR2 = net_test.IPV4_ADDR2
+  IPV6_ADDR2 = net_test.IPV6_ADDR2
   IPV4_PING = net_test.IPV4_PING
   IPV6_PING = net_test.IPV6_PING
 
@@ -444,6 +446,11 @@ class MultiNetworkBaseTest(net_test.NetworkTest):
     return {4: self.IPV4_ADDR,
             5: "::ffff:" + self.IPV4_ADDR,
             6: self.IPV6_ADDR}[version]
+
+  def GetOtherRemoteAddress(self, version):
+    return {4: self.IPV4_ADDR2,
+            5: "::ffff:" + self.IPV4_ADDR2,
+            6: self.IPV6_ADDR2}[version]
 
   def SelectInterface(self, s, netid, mode):
     if mode == "uid":
