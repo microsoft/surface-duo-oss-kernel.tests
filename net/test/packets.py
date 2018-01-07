@@ -42,7 +42,7 @@ def _RandomPort():
   return random.randint(1025, 65535)
 
 def _GetIpLayer(version):
-  return {4: scapy.IP, 6: scapy.IPv6}[version]
+  return {4: scapy.IP, 5: scapy.IP, 6: scapy.IPv6}[version]
 
 def _SetPacketTos(packet, tos):
   if isinstance(packet, scapy.IPv6):

@@ -325,9 +325,9 @@ class Xfrm(netlink.NetlinkSocket):
     If the policy exists, then return an error (EEXIST).
 
     Args:
-      policy: an unpacked XfrmUserpolicyInfo cstruct
-      tmpl: an unpacked XfrmUserTmpl cstruct
-      mark: an unpacked XfrmMark cstruct
+      policy: an unpacked XfrmUserpolicyInfo
+      tmpl: an unpacked XfrmUserTmpl
+      mark: an unpacked XfrmMark
     """
     self._UpdatePolicyInfo(XFRM_MSG_NEWPOLICY, policy, tmpl, mark)
 
@@ -338,8 +338,8 @@ class Xfrm(netlink.NetlinkSocket):
     existing policy record.
 
     Args:
-      policy: an unpacked XfrmUserpolicyInfo cstruct
-      tmpl: an unpacked XfrmUserTmpl cstruct of attributes to update
+      policy: an unpacked XfrmUserpolicyInfo
+      tmpl: an unpacked XfrmUserTmpl to update
       mark: an unpacked XfrmMark to match the existing policy or None
     """
     self._UpdatePolicyInfo(XFRM_MSG_UPDPOLICY, policy, tmpl, mark)

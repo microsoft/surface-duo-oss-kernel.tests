@@ -66,7 +66,9 @@ IPV4_PING = "\x08\x00\x00\x00\x0a\xce\x00\x03"
 IPV6_PING = "\x80\x00\x00\x00\x0a\xce\x00\x03"
 
 IPV4_ADDR = "8.8.8.8"
+IPV4_ADDR2 = "8.8.4.4"
 IPV6_ADDR = "2001:4860:4860::8888"
+IPV6_ADDR2 = "2001:4860:4860::8844"
 
 IPV6_SEQ_DGRAM_HEADER = ("  sl  "
                          "local_address                         "
@@ -94,7 +96,8 @@ def GetWildcardAddress(version):
 
 
 def GetAddressFamily(version):
-  return {4: AF_INET, 6: AF_INET6}[version]
+  return {4: AF_INET, 5: AF_INET6, 6: AF_INET6}[version]
+
 
 def AddressLengthBits(version):
   return {4: 32, 6: 128}[version]

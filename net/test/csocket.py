@@ -348,3 +348,24 @@ def Recvfrom(s, size, flags=0):
   addr = _ToSocketAddress(addr.raw, alen)
 
   return data, addr
+
+
+def Setsockopt(s, level, optname, optval, optlen):
+  """Python wrapper for setsockopt.
+
+  Mostly identical to the built-in setsockopt, but allows passing in arbitrary
+  binary blobs, including NULL options, which the built-in python setsockopt does
+  not allow.
+
+  Args:
+    s: The socket object on which to set the option.
+    level: The level parameter.
+    optname: The option to set.
+    optval: A raw byte string, the value to set the option to (None for NULL).
+    optlen: An integer, the length of the option.
+
+  Raises:
+    socket.error: if setsockopt fails.
+  """
+  ret = libc.setsockopt(s.fileno(), level, optname, optval, optlen)
+  MaybeRaiseSocketError(ret)

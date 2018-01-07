@@ -18,6 +18,7 @@ from socket import *  # pylint: disable=wildcard-import
 from scapy import all as scapy
 import struct
 
+import csocket
 import cstruct
 import multinetwork_base
 import net_test
@@ -100,6 +101,15 @@ def UserTemplate(family, spi, reqid, tun_addrs):
   return template
 
 
+def SetPolicySockopt(sock, family, opt_data):
+  optlen = len(opt_data) if opt_data is not None else 0
+  if family == AF_INET:
+    csocket.Setsockopt(sock, IPPROTO_IP, xfrm.IP_XFRM_POLICY, opt_data, optlen)
+  else:
+    csocket.Setsockopt(sock, IPPROTO_IPV6, xfrm.IPV6_XFRM_POLICY, opt_data,
+                       optlen)
+
+
 def ApplySocketPolicy(sock, family, direction, spi, reqid, tun_addrs):
   """Create and apply an ESP policy to a socket.
 
@@ -124,10 +134,11 @@ def ApplySocketPolicy(sock, family, direction, spi, reqid, tun_addrs):
 
   # Set the policy and template on our socket.
   opt_data = policy.Pack() + template.Pack()
-  if family == AF_INET:
-    sock.setsockopt(IPPROTO_IP, xfrm.IP_XFRM_POLICY, opt_data)
-  else:
-    sock.setsockopt(IPPROTO_IPV6, xfrm.IPV6_XFRM_POLICY, opt_data)
+
+  # The policy family might not match the socket family. For example, we might
+  # have an IPv4 policy on a dual-stack socket.
+  sockfamily = sock.getsockopt(SOL_SOCKET, net_test.SO_DOMAIN)
+  SetPolicySockopt(sock, sockfamily, opt_data)
 
 
 def GetEspPacketLength(mode, version, encap, payload):
@@ -161,6 +172,10 @@ def GetEspPacketLength(mode, version, encap, payload):
       },
       xfrm.XFRM_MODE_TRANSPORT: {
           None: {
+              # TODO: this is incorrect. It's likely looking at the ESP
+              # payload length instead of the total packet length. Fix it.
+              4: 84,
+              5: 84,
               6: 84,
           },
       },
@@ -174,95 +189,129 @@ def GetEspPacketLength(mode, version, encap, payload):
       (mode, encap, version))
 
 
-def EncryptPacketWithNull(packet, spi, seq):
+def EncryptPacketWithNull(packet, spi, seq, tun_addrs):
   """Apply null encryption to a packet.
 
-  This modifies the given packet to perform transport mode ESP encapsulation.
+  This performs ESP encapsulation on the given packet. The returned packet will
+  be a tunnel mode packet if tun_addrs is provided.
 
   The input packet is assumed to be a UDP packet. The input packet *MUST* have
   its length and checksum fields in IP and UDP headers set appropriately. This
   can be done by "rebuilding" the scapy object. e.g.,
       ip6_packet = scapy.IPv6(str(ip6_packet))
 
-  TODO: Support tunnel mode
   TODO: Support TCP
 
   Args:
     packet: a scapy.IPv6 or scapy.IP packet
     spi: security parameter index for ESP header in host byte order
     seq: sequence number for ESP header
+    tun_addrs: A tuple of (local, remote) addresses for tunnel mode, or None
+      to request a transport mode packet.
+
+  Return:
+    The encrypted packet (scapy.IPv6 or scapy.IP)
   """
+  # The top-level packet changes in tunnel mode, which would invalidate
+  # the passed-in packet pointer. For consistency, this function now returns
+  # a new packet and does not modify the user's original packet.
+  packet = packet.copy()
   udp_layer = packet.getlayer(scapy.UDP)
   if not udp_layer:
     raise ValueError("Expected a UDP packet")
   # Build an ESP header.
   esp_hdr = scapy.Raw(xfrm.EspHdr((spi, seq)).Pack())
 
+  if tun_addrs:
+    tsrc_addr, tdst_addr = tun_addrs
+    outer_version = net_test.GetAddressVersion(tsrc_addr)
+    ip_type = {4: scapy.IP, 6: scapy.IPv6}[outer_version]
+    new_ip_layer = ip_type(src=tsrc_addr, dst=tdst_addr)
+    inner_layer = packet
+    esp_nexthdr = {scapy.IPv6: IPPROTO_IPV6,
+                   scapy.IP: IPPROTO_IPIP}[type(packet)]
+  else:
+    new_ip_layer = None
+    inner_layer = udp_layer
+    esp_nexthdr = IPPROTO_UDP
+
+
   # ESP padding per RFC 4303 section 2.4.
   # For a null cipher with a block size of 1, padding is only necessary to
   # ensure that the 1-byte Pad Length and Next Header fields are right aligned
   # on a 4-byte boundary.
-  esplen = (len(udp_layer) + 2)  # UDP length plus Pad Length and Next Header.
+  esplen = (len(inner_layer) + 2)  # payload length plus Pad Length and Next Header.
   padlen = (4 - esplen) % 4
   # The pad bytes are consecutive integers starting from 0x01.
   padding = "".join((chr(i) for i in xrange(1, padlen + 1)))
-  trailer = padding + struct.pack("BB", padlen, IPPROTO_UDP)
+  trailer = padding + struct.pack("BB", padlen, esp_nexthdr)
 
   # Assemble the packet.
-  esp_hdr.payload = udp_layer
-  packet.payload = esp_hdr
-  packet.add_payload(trailer)
+  esp_hdr.payload = inner_layer
+  packet = new_ip_layer if new_ip_layer else packet
+  packet.payload = str(esp_hdr) + trailer
 
+  # TODO: Can we simplify this and avoid the initial copy()?
   # Fix the IPv4/IPv6 headers.
   if type(packet) is scapy.IPv6:
     packet.nh = IPPROTO_ESP
-    packet.plen += len(trailer) + len(xfrm.EspHdr)
+    # Recompute plen.
+    packet.plen = None
+    packet = scapy.IPv6(str(packet))
   elif type(packet) is scapy.IP:
     packet.proto = IPPROTO_ESP
-    packet.len += len(trailer) + len(xfrm.EspHdr)
-    # Recompute IPv4 checksum.
+    # Recompute IPv4 len and checksum.
+    packet.len = None
     packet.chksum = None
-    packet2 = scapy.IP(str(packet))
-    packet.chksum = packet2.chksum
+    packet = scapy.IP(str(packet))
   else:
     raise ValueError("First layer in packet should be IPv4 or IPv6: " + repr(packet))
+  return packet
 
 
 def DecryptPacketWithNull(packet):
   """Apply null decryption to a packet.
 
-  This modifies the given packet to perform ESP decapsulation.
+  This performs ESP decapsulation on the given packet. The input packet is
+  assumed to be a UDP packet. This function will remove the ESP header and
+  trailer bytes from an ESP packet.
 
-  The input packet is assumed to be a UDP packet. This function will remove the
-  ESP header and trailer bytes from an ESP packet.
-
-  TODO: Support tunnel mode
   TODO: Support TCP
 
   Args:
     packet: a scapy.IPv6 or scapy.IP packet
 
   Returns:
-    The EspHdr that was removed from the packet
+    A tuple of decrypted packet (scapy.IPv6 or scapy.IP) and EspHdr
   """
-  esp_layer = packet.payload
-  esp_hdr, udp_data = cstruct.Read(str(esp_layer), xfrm.EspHdr)
-  udp_layer = scapy.UDP(udp_data)
-  trailer = udp_layer.getlayer(scapy.Padding)
+  esp_hdr, esp_data = cstruct.Read(str(packet.payload), xfrm.EspHdr)
+  # Parse and strip ESP trailer.
+  pad_len, esp_nexthdr = struct.unpack("BB", esp_data[-2:])
+  trailer_len = pad_len + 2 # Add the size of the pad_len and next_hdr fields.
+  LayerType = {
+          IPPROTO_IPIP: scapy.IP,
+          IPPROTO_IPV6: scapy.IPv6,
+          IPPROTO_UDP: scapy.UDP}[esp_nexthdr]
+  next_layer = LayerType(esp_data[:-trailer_len])
+  if esp_nexthdr in [IPPROTO_IPIP, IPPROTO_IPV6]:
+    # Tunnel mode decap is simple. Return the inner packet.
+    return next_layer, esp_hdr
+
   # Cut out the ESP header.
-  packet.payload = udp_layer
-  # Drop the trailer.
-  packet.getlayer(scapy.UDP).payload.remove_payload()
+  packet.payload = next_layer
   # Fix the IPv4/IPv6 headers.
   if type(packet) is scapy.IPv6:
     packet.nh = IPPROTO_UDP
-    packet.plen -= (len(trailer) + len(xfrm.EspHdr))
+    packet.plen = None # Recompute packet length.
+    packet = scapy.IPv6(str(packet))
   elif type(packet) is scapy.IP:
     packet.proto = IPPROTO_UDP
-    packet.len -= (len(trailer) + len(xfrm.EspHdr))
+    packet.len = None # Recompute packet length.
+    packet.chksum = None # Recompute IPv4 checksum.
+    packet = scapy.IP(str(packet))
   else:
     raise ValueError("First layer in packet should be IPv4 or IPv6: " + repr(packet))
-  return esp_hdr
+  return packet, esp_hdr
 
 
 class XfrmBaseTest(multinetwork_base.MultiNetworkBaseTest):
@@ -290,7 +339,7 @@ class XfrmBaseTest(multinetwork_base.MultiNetworkBaseTest):
       netid: netid from which to read an ESP packet
       spi: SPI of the ESP packet in host byte order
       seq: sequence number of the ESP packet
-      length: length of the packet's payload or None to skip this check
+      length: length of the packet's ESP payload or None to skip this check
       src_addr: source address of the packet or None to skip this check
       dst_addr: destination address of the packet or None to skip this check
 
@@ -301,11 +350,11 @@ class XfrmBaseTest(multinetwork_base.MultiNetworkBaseTest):
     self.assertEquals(1, len(packets))
     packet = packets[0]
     if length is not None:
-      self.assertEquals(length, len(packet.payload), "Incorrect packet length.")
+      self.assertEquals(length, len(packet.payload))
     if dst_addr is not None:
-      self.assertEquals(dst_addr, packet.dst, "Mismatched destination address.")
+      self.assertEquals(dst_addr, packet.dst)
     if src_addr is not None:
-      self.assertEquals(src_addr, packet.src, "Mismatched source address.")
+      self.assertEquals(src_addr, packet.src)
     # extract the ESP header
     esp_hdr, _ = cstruct.Read(str(packet.payload), xfrm.EspHdr)
     self.assertEquals(xfrm.EspHdr((spi, seq)), esp_hdr)

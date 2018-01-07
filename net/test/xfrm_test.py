@@ -27,6 +27,7 @@ import csocket
 import cstruct
 import multinetwork_base
 import net_test
+import packets
 import xfrm
 import xfrm_base
 
@@ -90,17 +91,28 @@ class XfrmFunctionalTest(xfrm_base.XfrmBaseTest):
     self.xfrm.FlushSaInfo()
     self.assertEquals(0, len(self.xfrm.DumpSaInfo()))
 
-  def testSocketPolicy(self):
-    # Open an IPv6 UDP socket and connect it.
-    s = socket(AF_INET6, SOCK_DGRAM, 0)
+  def _TestSocketPolicy(self, version):
+    # Open a UDP socket and connect it.
+    family = net_test.GetAddressFamily(version)
+    s = socket(family, SOCK_DGRAM, 0)
     netid = self.RandomNetid()
     self.SelectInterface(s, netid, "mark")
-    s.connect((TEST_ADDR1, 53))
+
+    remoteaddr = self.GetRemoteAddress(version)
+    s.connect((remoteaddr, 53))
     saddr, sport = s.getsockname()[:2]
     daddr, dport = s.getpeername()[:2]
     reqid = 0
 
-    xfrm_base.ApplySocketPolicy(s, AF_INET6, xfrm.XFRM_POLICY_OUT,
+    desc, pkt = packets.UDP(version, saddr, daddr, sport=sport)
+    s.sendto(net_test.UDP_PAYLOAD, (remoteaddr, 53))
+    self.ExpectPacketOn(netid, "Send after socket, expected %s" % desc, pkt)
+
+    # Using IPv4 XFRM on a dual-stack socket requires setting an AF_INET policy
+    # that's written in terms of IPv4 addresses.
+    xfrm_version = 4 if version == 5 else version
+    xfrm_family = net_test.GetAddressFamily(xfrm_version)
+    xfrm_base.ApplySocketPolicy(s, xfrm_family, xfrm.XFRM_POLICY_OUT,
                                 TEST_SPI, reqid, None)
 
     # Because the policy has level set to "require" (the default), attempting
@@ -108,41 +120,72 @@ class XfrmFunctionalTest(xfrm_base.XfrmBaseTest):
     # matches the socket policy we set.
     self.assertRaisesErrno(
         EAGAIN,
-        s.sendto, net_test.UDP_PAYLOAD, (TEST_ADDR1, 53))
+        s.sendto, net_test.UDP_PAYLOAD, (remoteaddr, 53))
 
     # Adding a matching SA causes the packet to go out encrypted. The SA's
     # SPI must match the one in our template, and the destination address must
     # match the packet's destination address (in tunnel mode, it has to match
     # the tunnel destination).
-    self.xfrm.AddSaInfo("::", TEST_ADDR1, TEST_SPI,
-                        xfrm.XFRM_MODE_TRANSPORT, reqid,
+    self.xfrm.AddSaInfo(net_test.GetWildcardAddress(xfrm_version),
+                        self.GetRemoteAddress(xfrm_version),
+                        TEST_SPI, xfrm.XFRM_MODE_TRANSPORT, reqid,
                         xfrm_base._ALGO_CBC_AES_256, xfrm_base._ALGO_HMAC_SHA1,
                         None, None, None, None)
-    s.sendto(net_test.UDP_PAYLOAD, (TEST_ADDR1, 53))
+    s.sendto(net_test.UDP_PAYLOAD, (remoteaddr, 53))
     expected_length = xfrm_base.GetEspPacketLength(xfrm.XFRM_MODE_TRANSPORT, 6,
                                                    None, net_test.UDP_PAYLOAD)
+    expected_length = xfrm_base.GetEspPacketLength(xfrm.XFRM_MODE_TRANSPORT,
+                                                   version, None,
+                                                   net_test.UDP_PAYLOAD)
     self._ExpectEspPacketOn(netid, TEST_SPI, 1, expected_length, None, None)
 
     # Sending to another destination doesn't work: again, no matching SA.
+    remoteaddr2 = self.GetOtherRemoteAddress(version)
     self.assertRaisesErrno(
         EAGAIN,
-        s.sendto, net_test.UDP_PAYLOAD, (TEST_ADDR2, 53))
+        s.sendto, net_test.UDP_PAYLOAD, (remoteaddr2, 53))
 
     # Sending on another socket without the policy applied results in an
     # unencrypted packet going out.
-    s2 = socket(AF_INET6, SOCK_DGRAM, 0)
+    s2 = socket(family, SOCK_DGRAM, 0)
     self.SelectInterface(s2, netid, "mark")
-    s2.sendto(net_test.UDP_PAYLOAD, (TEST_ADDR1, 53))
-    packets = self.ReadAllPacketsOn(netid)
-    self.assertEquals(1, len(packets))
-    packet = packets[0]
-    self.assertEquals(IPPROTO_UDP, packet.nh)
+    s2.sendto(net_test.UDP_PAYLOAD, (remoteaddr, 53))
+    pkts = self.ReadAllPacketsOn(netid)
+    self.assertEquals(1, len(pkts))
+    packet = pkts[0]
+
+    protocol = packet.nh if version == 6 else packet.proto
+    self.assertEquals(IPPROTO_UDP, protocol)
 
     # Deleting the SA causes the first socket to return errors again.
-    self.xfrm.DeleteSaInfo(TEST_ADDR1, TEST_SPI, IPPROTO_ESP)
+    self.xfrm.DeleteSaInfo(self.GetRemoteAddress(xfrm_version), TEST_SPI,
+                           IPPROTO_ESP)
     self.assertRaisesErrno(
         EAGAIN,
-        s.sendto, net_test.UDP_PAYLOAD, (TEST_ADDR1, 53))
+        s.sendto, net_test.UDP_PAYLOAD, (remoteaddr, 53))
+
+    # Clear the socket policy and expect a cleartext packet.
+    xfrm_base.SetPolicySockopt(s, family, None)
+    s.sendto(net_test.UDP_PAYLOAD, (remoteaddr, 53))
+    self.ExpectPacketOn(netid, "Send after clear, expected %s" % desc, pkt)
+
+    # Clearing the policy twice is safe.
+    xfrm_base.SetPolicySockopt(s, family, None)
+    s.sendto(net_test.UDP_PAYLOAD, (remoteaddr, 53))
+    self.ExpectPacketOn(netid, "Send after clear 2, expected %s" % desc, pkt)
+
+    # Clearing if a policy was never set is safe.
+    s = socket(AF_INET6, SOCK_DGRAM, 0)
+    xfrm_base.SetPolicySockopt(s, family, None)
+
+  def testSocketPolicyIPv4(self):
+    self._TestSocketPolicy(4)
+
+  def testSocketPolicyIPv6(self):
+    self._TestSocketPolicy(6)
+
+  def testSocketPolicyMapped(self):
+    self._TestSocketPolicy(5)
 
   # TODO: Should we completely re-write this using null encryption and null
   # authentication? We could then assemble and disassemble packets for each
@@ -204,9 +247,9 @@ class XfrmFunctionalTest(xfrm_base.XfrmBaseTest):
     # s.send("foo")  # TODO: WHY DOES THIS NOT WORK?
 
     # Expect to see an UDP encapsulated packet.
-    packets = self.ReadAllPacketsOn(netid)
-    self.assertEquals(1, len(packets))
-    packet = packets[0]
+    pkts = self.ReadAllPacketsOn(netid)
+    self.assertEquals(1, len(pkts))
+    packet = pkts[0]
     self.assertIsUdpEncapEsp(packet, out_spi, 1, 52)
 
     # Now test the receive path. Because we don't know how to decrypt packets,
@@ -324,8 +367,79 @@ class XfrmFunctionalTest(xfrm_base.XfrmBaseTest):
       s.send(net_test.UDP_PAYLOAD)
     self.ExpectNoPacketsOn(netid, "Packet not blocked by policy")
 
-  def CheckNullEncryption(self, version):
-    """This test is an example of how to set up null crypto."""
+  def _CheckNullEncryptionTunnelMode(self, version):
+    family = net_test.GetAddressFamily(version)
+    netid = self.RandomNetid()
+    local_addr = self.MyAddress(version, netid)
+    remote_addr = self.GetRemoteAddress(version)
+
+    # Borrow the address of another netId as the source address of the tunnel
+    tun_local = self.MyAddress(version, self.RandomNetid(netid))
+    # For generality, pick a tunnel endpoint that's not the address we
+    # connect the socket to.
+    tun_remote = TUNNEL_ENDPOINTS[version]
+
+    # Output
+    self.xfrm.AddSaInfo(
+        tun_local, tun_remote, 0xABCD, xfrm.XFRM_MODE_TUNNEL, 123,
+        xfrm_base._ALGO_CRYPT_NULL, xfrm_base._ALGO_AUTH_NULL,
+        None, None, None, netid)
+    # Input
+    self.xfrm.AddSaInfo(
+        tun_remote, tun_local, 0x9876, xfrm.XFRM_MODE_TUNNEL, 456,
+        xfrm_base._ALGO_CRYPT_NULL, xfrm_base._ALGO_AUTH_NULL,
+        None, None, None, None)
+
+    sock = net_test.UDPSocket(family)
+    self.SelectInterface(sock, netid, "mark")
+    sock.bind((local_addr, 0))
+    local_port = sock.getsockname()[1]
+    remote_port = 5555
+
+    xfrm_base.ApplySocketPolicy(
+        sock, family, xfrm.XFRM_POLICY_OUT, 0xABCD, 123,
+        (tun_local, tun_remote))
+    xfrm_base.ApplySocketPolicy(
+        sock, family, xfrm.XFRM_POLICY_IN, 0x9876, 456,
+        (tun_remote, tun_local))
+
+    # Create and receive an ESP packet.
+    IpType = {4: scapy.IP, 6: scapy.IPv6}[version]
+    input_pkt = (IpType(src=remote_addr, dst=local_addr) /
+                 scapy.UDP(sport=remote_port, dport=local_port) /
+                 "input hello")
+    input_pkt = IpType(str(input_pkt)) # Compute length, checksum.
+    input_pkt = xfrm_base.EncryptPacketWithNull(input_pkt, 0x9876,
+                                                1, (tun_remote, tun_local))
+
+    self.ReceivePacketOn(netid, input_pkt)
+    msg, addr = sock.recvfrom(1024)
+    self.assertEquals("input hello", msg)
+    self.assertEquals((remote_addr, remote_port), addr[:2])
+
+    # Send and capture a packet.
+    sock.sendto("output hello", (remote_addr, remote_port))
+    packets = self.ReadAllPacketsOn(netid)
+    self.assertEquals(1, len(packets))
+    output_pkt = packets[0]
+    output_pkt, esp_hdr = xfrm_base.DecryptPacketWithNull(output_pkt)
+    self.assertEquals(output_pkt[scapy.UDP].len, len("output_hello") + 8)
+    self.assertEquals(remote_addr, output_pkt.dst)
+    self.assertEquals(remote_port, output_pkt[scapy.UDP].dport)
+    # length of the payload plus the UDP header
+    self.assertEquals("output hello", str(output_pkt[scapy.UDP].payload))
+    self.assertEquals(0xABCD, esp_hdr.spi)
+
+  def testNullEncryptionTunnelMode(self):
+    """Verify null encryption in tunnel mode.
+
+    This test verifies both manual assembly and disassembly of UDP packets
+    with ESP in IPsec tunnel mode.
+    """
+    for version in [4, 6]:
+      self._CheckNullEncryptionTunnelMode(version)
+
+  def _CheckNullEncryptionTransportMode(self, version):
     family = net_test.GetAddressFamily(version)
     netid = self.RandomNetid()
     local_addr = self.MyAddress(version, netid)
@@ -348,8 +462,10 @@ class XfrmFunctionalTest(xfrm_base.XfrmBaseTest):
     local_port = sock.getsockname()[1]
     remote_port = 5555
 
-    xfrm_base.ApplySocketPolicy(sock, family, xfrm.XFRM_POLICY_OUT, 0xABCD, 123, None)
-    xfrm_base.ApplySocketPolicy(sock, family, xfrm.XFRM_POLICY_IN, 0x9876, 456, None)
+    xfrm_base.ApplySocketPolicy(
+        sock, family, xfrm.XFRM_POLICY_OUT, 0xABCD, 123, None)
+    xfrm_base.ApplySocketPolicy(
+        sock, family, xfrm.XFRM_POLICY_IN, 0x9876, 456, None)
 
     # Create and receive an ESP packet.
     IpType = {4: scapy.IP, 6: scapy.IPv6}[version]
@@ -357,7 +473,7 @@ class XfrmFunctionalTest(xfrm_base.XfrmBaseTest):
                  scapy.UDP(sport=remote_port, dport=local_port) /
                  "input hello")
     input_pkt = IpType(str(input_pkt)) # Compute length, checksum.
-    xfrm_base.EncryptPacketWithNull(input_pkt, 0x9876, 1)
+    input_pkt = xfrm_base.EncryptPacketWithNull(input_pkt, 0x9876, 1, None)
 
     self.ReceivePacketOn(netid, input_pkt)
     msg, addr = sock.recvfrom(1024)
@@ -369,25 +485,30 @@ class XfrmFunctionalTest(xfrm_base.XfrmBaseTest):
     packets = self.ReadAllPacketsOn(netid)
     self.assertEquals(1, len(packets))
     output_pkt = packets[0]
-    esp_hdr = xfrm_base.DecryptPacketWithNull(output_pkt)
+    output_pkt, esp_hdr = xfrm_base.DecryptPacketWithNull(output_pkt)
+    # length of the payload plus the UDP header
+    self.assertEquals(output_pkt[scapy.UDP].len, len("output_hello") + 8)
     self.assertEquals(remote_addr, output_pkt.dst)
     self.assertEquals(remote_port, output_pkt[scapy.UDP].dport)
     self.assertEquals("output hello", str(output_pkt[scapy.UDP].payload))
     self.assertEquals(0xABCD, esp_hdr.spi)
 
-  def testNullEncryptionV4(self):
-    self.CheckNullEncryption(4)
+  def testNullEncryptionTransportMode(self):
+    """Verify null encryption in transport mode.
 
-  def testNullEncryptionV6(self):
-    self.CheckNullEncryption(6)
+    This test verifies both manual assembly and disassembly of UDP packets
+    with ESP in IPsec transport mode.
+    """
+    for version in [4, 6]:
+      self._CheckNullEncryptionTransportMode(version)
 
   def _CheckGlobalPoliciesByMark(self, version):
     """Tests that global policies may differ by only the mark."""
     family = net_test.GetAddressFamily(version)
     sel = xfrm.EmptySelector(family)
     # Pick 2 arbitrary mark values.
-    mark1 =xfrm.XfrmMark(mark=0xf00, mask=xfrm_base.MARK_MASK_ALL)
-    mark2 =xfrm.XfrmMark(mark=0xf00d, mask=xfrm_base.MARK_MASK_ALL)
+    mark1 = xfrm.XfrmMark(mark=0xf00, mask=xfrm_base.MARK_MASK_ALL)
+    mark2 = xfrm.XfrmMark(mark=0xf00d, mask=xfrm_base.MARK_MASK_ALL)
     # Create a global policy.
     policy = xfrm_base.UserPolicy(xfrm.XFRM_POLICY_OUT, sel)
     tmpl = xfrm_base.UserTemplate(AF_UNSPEC, 0xfeed, 0, None)
@@ -439,6 +560,23 @@ class XfrmFunctionalTest(xfrm_base.XfrmBaseTest):
 
   def testUpdatePolicyV6(self):
     self._CheckUpdatePolicy(6)
+
+  def _CheckPolicyDifferByDirection(self,version):
+    """Tests that policies can differ only by direction."""
+    family = net_test.GetAddressFamily(version)
+    tmpl = xfrm_base.UserTemplate(family, 0xdead, 0, None)
+    sel = xfrm.EmptySelector(family)
+    mark = xfrm.XfrmMark(mark=0xf00, mask=xfrm_base.MARK_MASK_ALL)
+    policy = xfrm_base.UserPolicy(xfrm.XFRM_POLICY_OUT, sel)
+    self.xfrm.AddPolicyInfo(policy, tmpl, mark)
+    policy = xfrm_base.UserPolicy(xfrm.XFRM_POLICY_IN, sel)
+    self.xfrm.AddPolicyInfo(policy, tmpl, mark)
+
+  def testPolicyDifferByDirectionV4(self):
+    self._CheckPolicyDifferByDirection(4)
+
+  def testPolicyDifferByDirectionV6(self):
+    self._CheckPolicyDifferByDirection(6)
 
 class XfrmOutputMarkTest(xfrm_base.XfrmBaseTest):
 
@@ -539,6 +677,7 @@ class XfrmOutputMarkTest(xfrm_base.XfrmBaseTest):
         self.xfrm.AddSaInfo(TEST_ADDR1, TEST_ADDR2, 0x1234,
             xfrm.XFRM_MODE_TRANSPORT, 0, invalid_crypt,
             xfrm_base._ALGO_HMAC_SHA1, None, None, None, 0)
+
 
 if __name__ == "__main__":
   unittest.main()
