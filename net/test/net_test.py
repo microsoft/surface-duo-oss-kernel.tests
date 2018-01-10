@@ -76,6 +76,8 @@ IPV6_SEQ_DGRAM_HEADER = ("  sl  "
                          "st tx_queue rx_queue tr tm->when retrnsmt"
                          "   uid  timeout inode ref pointer drops\n")
 
+UDP_HDR_LEN = 8
+
 # Arbitrary packet payload.
 UDP_PAYLOAD = str(scapy.DNS(rd=1,
                             id=random.randint(0, 65535),
@@ -94,6 +96,8 @@ LINUX_VERSION = csocket.LinuxVersion()
 def GetWildcardAddress(version):
   return {4: "0.0.0.0", 6: "::"}[version]
 
+def GetIpHdrLength(version):
+  return {4: 20, 6: 40}[version]
 
 def GetAddressFamily(version):
   return {4: AF_INET, 5: AF_INET6, 6: AF_INET6}[version]
@@ -342,7 +346,6 @@ def RunIptablesCommand(version, args):
   if not os.access(iptables_path, os.X_OK):
     iptables_path = "/system/bin" + iptables
   return os.spawnvp(os.P_WAIT, iptables_path, [iptables_path] + args.split(" "))
-
 
 # Determine network configuration.
 try:
