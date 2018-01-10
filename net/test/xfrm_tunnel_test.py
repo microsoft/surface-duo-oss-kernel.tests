@@ -154,7 +154,7 @@ class XfrmVtiTest(xfrm_base.XfrmBaseTest):
       with self.assertRaises(IOError):
         self.iproute.GetIfIndex(_VTI_IFNAME)
 
-  def _SetupVtiNetwork(self, ifname, is_add):
+  def _SetupVtiNetwork(self, netid, ifname, is_add):
     """Setup rules and routes for a VTI Network.
 
     Takes an interface and depending on the boolean
@@ -170,7 +170,7 @@ class XfrmVtiTest(xfrm_base.XfrmBaseTest):
     if is_add:
       # Bring up the interface so that we can start adding addresses
       # and routes.
-      net_test.SetInterfaceUp(_VTI_IFNAME)
+      net_test.SetInterfaceUp(ifname)
 
       # Disable router solicitations to avoid occasional spurious packets
       # arriving on the underlying network; there are two possible behaviors
@@ -179,17 +179,17 @@ class XfrmVtiTest(xfrm_base.XfrmBaseTest):
       # the UDP_PAYLOAD; or, two packets may arrive on the underlying
       # network which fails the assertion that only one ESP packet is received.
       self.SetSysctl(
-          "/proc/sys/net/ipv6/conf/%s/router_solicitations" % _VTI_IFNAME, 0)
+          "/proc/sys/net/ipv6/conf/%s/router_solicitations" % ifname, 0)
     for version in [4, 6]:
       ifindex = net_test.GetInterfaceIndex(ifname)
-      table = _VTI_NETID
+      table = netid
 
       # Set up routing rules.
-      start, end = self.UidRangeForNetid(_VTI_NETID)
+      start, end = self.UidRangeForNetid(netid)
       self.iproute.UidRangeRule(version, is_add, start, end, table,
                                 self.PRIORITY_UID)
       self.iproute.OifRule(version, is_add, ifname, table, self.PRIORITY_OIF)
-      self.iproute.FwmarkRule(version, is_add, _VTI_NETID, table,
+      self.iproute.FwmarkRule(version, is_add, netid, table,
                               self.PRIORITY_FWMARK)
       if is_add:
         self.iproute.AddAddress(
@@ -202,102 +202,108 @@ class XfrmVtiTest(xfrm_base.XfrmBaseTest):
             _GetLocalInnerAddress(version),
             net_test.AddressLengthBits(version), ifindex)
     if not is_add:
-      net_test.SetInterfaceDown(_VTI_IFNAME)
+      net_test.SetInterfaceDown(ifname)
 
   # TODO: Should we completely re-write this using null encryption and null
   # authentication? We could then assemble and disassemble packets for each
   # direction individually. This approach would improve debuggability, avoid the
   # complexity of the twister, and allow the test to more-closely validate
   # deployable configurations.
-  def _CheckVtiOutput(self, inner_version, outer_version):
-    """Test packet input and output over a Virtual Tunnel Interface."""
-    netid = self.RandomNetid()
+  def _CreateVti(self, netid, vti_netid, ifname, outer_version):
     local_outer = self.MyAddress(outer_version, netid)
     remote_outer = _GetRemoteOuterAddress(outer_version)
     self.iproute.CreateVirtualTunnelInterface(
-        dev_name=_VTI_IFNAME,
+        dev_name=ifname,
         local_addr=local_outer,
         remote_addr=remote_outer,
         i_key=_TEST_IKEY,
         o_key=_TEST_OKEY)
-    self._SetupVtiNetwork(_VTI_IFNAME, True)
+
+    self._SetupVtiNetwork(vti_netid, ifname, True)
+
+    # For the VTI, the selectors are wildcard since packets will only
+    # be selected if they have the appropriate mark, hence the inner
+    # addresses are wildcard.
+    self.CreateTunnel(xfrm.XFRM_POLICY_OUT, None, local_outer, remote_outer,
+                      _TEST_OUT_SPI, xfrm_base._ALGO_CBC_AES_256,
+                      xfrm_base._ALGO_HMAC_SHA1,
+                      xfrm.ExactMatchMark(_TEST_OKEY), netid)
+
+    self.CreateTunnel(xfrm.XFRM_POLICY_IN, None, remote_outer, local_outer,
+                      _TEST_IN_SPI, xfrm_base._ALGO_CBC_AES_256,
+                      xfrm_base._ALGO_HMAC_SHA1,
+                      xfrm.ExactMatchMark(_TEST_IKEY), None)
+
+  def _CheckVtiInputOutput(self, netid, vti_netid, iface, outer_version,
+                           inner_version, rx, tx):
+    local_outer = self.MyAddress(outer_version, netid)
+    remote_outer = _GetRemoteOuterAddress(outer_version)
+
+    # Create a socket to receive packets.
+    read_sock = socket(
+        net_test.GetAddressFamily(inner_version), SOCK_DGRAM, 0)
+    read_sock.bind((net_test.GetWildcardAddress(inner_version), 0))
+    # The second parameter of the tuple is the port number regardless of AF.
+    port = read_sock.getsockname()[1]
+    # Guard against the eventuality of the receive failing.
+    csocket.SetSocketTimeout(read_sock, 100)
+
+    # Send a packet out via the vti-backed network, bound for the port number
+    # of the input socket.
+    write_sock = socket(
+        net_test.GetAddressFamily(inner_version), SOCK_DGRAM, 0)
+    self.SelectInterface(write_sock, vti_netid, "mark")
+    write_sock.sendto(net_test.UDP_PAYLOAD,
+                      (_GetRemoteInnerAddress(inner_version), port))
+
+    # Read a tunneled IP packet on the underlying (outbound) network
+    # verifying that it is an ESP packet.
+    pkt = self._ExpectEspPacketOn(netid, _TEST_OUT_SPI, tx + 1, None,
+                                  local_outer, remote_outer)
+
+    self.assertEquals((rx, tx + 1), self.iproute.GetRxTxPackets(iface))
+
+    # Perform an address switcheroo so that the inner address of the remote
+    # end of the tunnel is now the address on the local VTI interface; this
+    # way, the twisted inner packet finds a destination via the VTI once
+    # decrypted.
+    remote = _GetRemoteInnerAddress(inner_version)
+    local = _GetLocalInnerAddress(inner_version)
+    self._SwapInterfaceAddress(iface, new_addr=remote, old_addr=local)
+    try:
+      # Swap the packet's IP headers and write it back to the
+      # underlying network.
+      pkt = TunTwister.TwistPacket(pkt)
+      self.ReceivePacketOn(netid, pkt)
+      # Receive the decrypted packet on the dest port number.
+      read_packet = read_sock.recv(4096)
+      self.assertEquals(read_packet, net_test.UDP_PAYLOAD)
+      self.assertEquals((rx + 1, tx + 1), self.iproute.GetRxTxPackets(iface))
+    finally:
+      # Unwind the switcheroo
+      self._SwapInterfaceAddress(iface, new_addr=local, old_addr=remote)
+
+    return rx + 1, tx + 1
+
+  def _TestVti(self, outer_version):
+    """Test packet input and output over a Virtual Tunnel Interface."""
+    netid = self.RandomNetid()
+
+    self._CreateVti(netid, _VTI_NETID, _VTI_IFNAME, outer_version)
 
     try:
-      # For the VTI, the selectors are wildcard since packets will only
-      # be selected if they have the appropriate mark, hence the inner
-      # addresses are wildcard.
-      self.CreateTunnel(xfrm.XFRM_POLICY_OUT, None, local_outer, remote_outer,
-                        _TEST_OUT_SPI, xfrm_base._ALGO_CBC_AES_256,
-                        xfrm_base._ALGO_HMAC_SHA1,
-                        xfrm.ExactMatchMark(_TEST_OKEY), netid)
-
-      self.CreateTunnel(xfrm.XFRM_POLICY_IN, None, remote_outer, local_outer,
-                        _TEST_IN_SPI, xfrm_base._ALGO_CBC_AES_256,
-                        xfrm_base._ALGO_HMAC_SHA1,
-                        xfrm.ExactMatchMark(_TEST_IKEY), None)
-
-      # Create a socket to receive packets.
-      read_sock = socket(
-          net_test.GetAddressFamily(inner_version), SOCK_DGRAM, 0)
-      read_sock.bind((net_test.GetWildcardAddress(inner_version), 0))
-      # The second parameter of the tuple is the port number regardless of AF.
-      port = read_sock.getsockname()[1]
-      # Guard against the eventuality of the receive failing.
-      csocket.SetSocketTimeout(read_sock, 100)
-
-      # Start counting packets.
-      rx, tx = self.iproute.GetRxTxPackets(_VTI_IFNAME)
-
-      # Send a packet out via the vti-backed network, bound for the port number
-      # of the input socket.
-      write_sock = socket(
-          net_test.GetAddressFamily(inner_version), SOCK_DGRAM, 0)
-      self.SelectInterface(write_sock, _VTI_NETID, "mark")
-      write_sock.sendto(net_test.UDP_PAYLOAD,
-                        (_GetRemoteInnerAddress(inner_version), port))
-
-      # Read a tunneled IP packet on the underlying (outbound) network
-      # verifying that it is an ESP packet.
-      pkt = self._ExpectEspPacketOn(netid, _TEST_OUT_SPI, 1, None, local_outer,
-                                    remote_outer)
-
-      self.assertEquals((rx, tx + 1), self.iproute.GetRxTxPackets(_VTI_IFNAME))
-
-      # Perform an address switcheroo so that the inner address of the remote
-      # end of the tunnel is now the address on the local VTI interface; this
-      # way, the twisted inner packet finds a destination via the VTI once
-      # decrypted.
-      remote = _GetRemoteInnerAddress(inner_version)
-      local = _GetLocalInnerAddress(inner_version)
-      self._SwapInterfaceAddress(_VTI_IFNAME, new_addr=remote, old_addr=local)
-      try:
-        # Swap the packet's IP headers and write it back to the
-        # underlying network.
-        pkt = TunTwister.TwistPacket(pkt)
-        self.ReceivePacketOn(netid, pkt)
-        # Receive the decrypted packet on the dest port number.
-        read_packet = read_sock.recv(4096)
-        self.assertEquals(read_packet, net_test.UDP_PAYLOAD)
-        self.assertEquals((rx + 1, tx + 1),
-                          self.iproute.GetRxTxPackets(_VTI_IFNAME))
-      finally:
-        # Unwind the switcheroo
-        self._SwapInterfaceAddress(_VTI_IFNAME, new_addr=local, old_addr=remote)
-
+      rx, tx = self._CheckVtiInputOutput(netid, _VTI_NETID, _VTI_IFNAME,
+                                         outer_version, 4, 0, 0)
+      self._CheckVtiInputOutput(netid, _VTI_NETID, _VTI_IFNAME, outer_version,
+                                4, rx, tx)
     finally:
-      self._SetupVtiNetwork(_VTI_IFNAME, False)
+      self._SetupVtiNetwork(_VTI_NETID, _VTI_IFNAME, False)
 
-  def testIpv4InIpv4VtiOutput(self):
-    self._CheckVtiOutput(4, 4)
+  def testIpv4Vti(self):
+    self._TestVti(4)
 
-  def testIpv4InIpv6VtiOutput(self):
-    self._CheckVtiOutput(4, 6)
-
-  def testIpv6InIpv4VtiOutput(self):
-    self._CheckVtiOutput(6, 4)
-
-  def testIpv6InIpv6VtiOutput(self):
-    self._CheckVtiOutput(6, 6)
+  def testIpv6Vti(self):
+    self._TestVti(6)
 
 
 if __name__ == "__main__":
