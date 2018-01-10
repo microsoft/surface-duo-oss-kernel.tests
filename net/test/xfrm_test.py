@@ -132,11 +132,11 @@ class XfrmFunctionalTest(xfrm_base.XfrmBaseTest):
                         xfrm_base._ALGO_CBC_AES_256, xfrm_base._ALGO_HMAC_SHA1,
                         None, None, None, None)
     s.sendto(net_test.UDP_PAYLOAD, (remoteaddr, 53))
-    expected_length = xfrm_base.GetEspPacketLength(xfrm.XFRM_MODE_TRANSPORT, 6,
-                                                   None, net_test.UDP_PAYLOAD)
     expected_length = xfrm_base.GetEspPacketLength(xfrm.XFRM_MODE_TRANSPORT,
-                                                   version, None,
-                                                   net_test.UDP_PAYLOAD)
+                                                version, False,
+                                                net_test.UDP_PAYLOAD,
+                                                xfrm_base._ALGO_HMAC_SHA1,
+                                                xfrm_base._ALGO_CBC_AES_256)
     self._ExpectEspPacketOn(netid, TEST_SPI, 1, expected_length, None, None)
 
     # Sending to another destination doesn't work: again, no matching SA.
@@ -620,7 +620,9 @@ class XfrmOutputMarkTest(xfrm_base.XfrmBaseTest):
     remoteaddr = self.GetRemoteAddress(version)
 
     packetlen = xfrm_base.GetEspPacketLength(xfrm.XFRM_MODE_TUNNEL, version,
-                                             IPPROTO_IP, net_test.UDP_PAYLOAD)
+                                             False, net_test.UDP_PAYLOAD,
+                                             xfrm_base._ALGO_HMAC_SHA1,
+                                             xfrm_base._ALGO_CBC_AES_256)
 
     if expected_netid is not None:
       s.sendto(net_test.UDP_PAYLOAD, (remoteaddr, 53))
