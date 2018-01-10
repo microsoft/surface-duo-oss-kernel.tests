@@ -22,6 +22,7 @@ import csocket
 import cstruct
 import multinetwork_base
 import net_test
+import util
 import xfrm
 
 _ENCRYPTION_KEY_256 = ("308146eb3bd84b044573d60f5a5fd159"
@@ -29,11 +30,12 @@ _ENCRYPTION_KEY_256 = ("308146eb3bd84b044573d60f5a5fd159"
 _AUTHENTICATION_KEY_128 = "af442892cdcd0ef650e9c299f9a8436a".decode("hex")
 
 _ALGO_AUTH_NULL = (xfrm.XfrmAlgoAuth(("digest_null", 0, 0)), "")
-_ALGO_CBC_AES_256 = (xfrm.XfrmAlgo((xfrm.XFRM_EALG_CBC_AES, 256)),
-                     _ENCRYPTION_KEY_256)
-_ALGO_CRYPT_NULL = (xfrm.XfrmAlgo(("ecb(cipher_null)", 0)), "")
 _ALGO_HMAC_SHA1 = (xfrm.XfrmAlgoAuth((xfrm.XFRM_AALG_HMAC_SHA1, 128, 96)),
                    _AUTHENTICATION_KEY_128)
+
+_ALGO_CRYPT_NULL = (xfrm.XfrmAlgo(("ecb(cipher_null)", 0)), "")
+_ALGO_CBC_AES_256 = (xfrm.XfrmAlgo((xfrm.XFRM_EALG_CBC_AES, 256)),
+                     _ENCRYPTION_KEY_256)
 
 # Match all bits of the mark
 MARK_MASK_ALL = 0xffffffff
@@ -140,53 +142,66 @@ def ApplySocketPolicy(sock, family, direction, spi, reqid, tun_addrs):
   sockfamily = sock.getsockopt(SOL_SOCKET, net_test.SO_DOMAIN)
   SetPolicySockopt(sock, sockfamily, opt_data)
 
+def _GetCryptParameters(crypt_alg):
+  """Looks up encryption algorithm's block and IV lengths.
 
-def GetEspPacketLength(mode, version, encap, payload):
+  Args:
+    crypt_alg: the encryption algorithm constant
+  Returns:
+    A tuple of the block size, and IV length
+  """
+  cryptParameters = {
+    _ALGO_CRYPT_NULL: (4, 0),
+    _ALGO_CBC_AES_256: (16, 16)
+  }
+
+  return cryptParameters.get(crypt_alg, (0, 0))
+
+def GetEspPacketLength(mode, version, udp_encap, payload,
+                       auth_alg, crypt_alg):
   """Calculates encrypted length of a UDP packet with the given payload.
-
-  Currently assumes ALGO_CBC_AES_256 and ALGO_HMAC_SHA1.
 
   Args:
     mode: XFRM_MODE_TRANSPORT or XFRM_MODE_TUNNEL.
     version: IPPROTO_IP for IPv4, IPPROTO_IPV6 for IPv6. The inner header.
-    outer: The outer header. None for transport mode, IPPROTO_IP or IPPROTO_IPV6
-      (TODO: support IPPROTO_UDP for UDP encap) for tunnel mode.
+    udp_encap: whether UDP encap overhead should be accounted for. Since the
+               outermost IP header is ignored (payload only), only add for udp
+               encap'd packets.
     payload: UDP payload bytes.
+    auth_alg: The xfrm_base authentication algorithm used in the SA.
+    crypt_alg: The xfrm_base encryption algorithm used in the SA.
 
   Return: the packet length.
-
-  Raises:
-    NotImplementedError: unsupported combination.
   """
-  if len(payload) != len(net_test.UDP_PAYLOAD):
-    raise NotImplementedError("Only one payload length is supported.")
 
-  # TODO: make this non-trivial, either using a more general matrix, or by
-  # calculating sizes dynamically based on algorithm block sizes and padding.
-  LENGTHS = {
-      xfrm.XFRM_MODE_TUNNEL: {
-          IPPROTO_IP: {
-              4: 100,
-              6: 132,
-          },
-      },
-      xfrm.XFRM_MODE_TRANSPORT: {
-          None: {
-              # TODO: this is incorrect. It's likely looking at the ESP
-              # payload length instead of the total packet length. Fix it.
-              4: 84,
-              5: 84,
-              6: 84,
-          },
-      },
-  }
+  crypt_iv_len, crypt_blk_size=_GetCryptParameters(crypt_alg)
+  auth_trunc_len = auth_alg[0].trunc_len
 
-  try:
-    return LENGTHS[mode][encap][version]
-  except KeyError:
-    raise NotImplementedError(
-      "Unsupported combination mode=%s encap=%s version=%s" %
-      (mode, encap, version))
+  # Wrap in UDP payload
+  payload_len = len(payload) + net_test.UDP_HDR_LEN
+
+  # Size constants
+  esp_hdr_len = len(xfrm.EspHdr) # SPI + Seq number
+  icv_len = auth_trunc_len / 8
+
+  # Add inner IP header if tunnel mode
+  if mode == xfrm.XFRM_MODE_TUNNEL:
+    payload_len += net_test.GetIpHdrLength(version)
+
+  # Add ESP trailer
+  payload_len += 2 # Pad Length + Next Header fields
+
+  # Align to block size of encryption algorithm
+  payload_len += util.GetPadLength(crypt_blk_size, payload_len)
+
+  # Add initialization vector, header length and ICV length
+  payload_len += esp_hdr_len + crypt_iv_len + icv_len
+
+  # Add encap as needed
+  if udp_encap:
+    payload_len += net_test.UDP_HDR_LEN
+
+  return payload_len
 
 
 def EncryptPacketWithNull(packet, spi, seq, tun_addrs):
@@ -240,8 +255,8 @@ def EncryptPacketWithNull(packet, spi, seq, tun_addrs):
   # For a null cipher with a block size of 1, padding is only necessary to
   # ensure that the 1-byte Pad Length and Next Header fields are right aligned
   # on a 4-byte boundary.
-  esplen = (len(inner_layer) + 2)  # payload length plus Pad Length and Next Header.
-  padlen = (4 - esplen) % 4
+  esplen = (len(inner_layer) + 2)  # UDP length plus Pad Length and Next Header.
+  padlen = util.GetPadLength(4, esplen)
   # The pad bytes are consecutive integers starting from 0x01.
   padding = "".join((chr(i) for i in xrange(1, padlen + 1)))
   trailer = padding + struct.pack("BB", padlen, esp_nexthdr)
