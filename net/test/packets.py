@@ -156,8 +156,6 @@ def ICMPPacketTooBig(version, srcaddr, dstaddr, packet):
             scapy.IP(src=srcaddr, dst=dstaddr, proto=1) /
             scapy.ICMPerror(type=3, code=4, unused=1280) / str(packet)[:64])
   else:
-    udp = packet.getlayer("UDP")
-    udp.payload = str(udp.payload)[:1280-40-8]
     return ("ICMPv6 Packet Too Big",
             scapy.IPv6(src=srcaddr, dst=dstaddr) /
             scapy.ICMPv6PacketTooBig() / str(packet)[:1232])
