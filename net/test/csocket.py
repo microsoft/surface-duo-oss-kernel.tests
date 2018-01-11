@@ -21,6 +21,7 @@ import socket
 import struct
 
 import cstruct
+import util
 
 
 # Data structures.
@@ -101,10 +102,6 @@ def VoidPointer(s):
   return ctypes.cast(s.CPointer(), ctypes.c_void_p)
 
 
-def PaddedLength(length):
-  return CMSG_ALIGNTO * ((length / CMSG_ALIGNTO) + (length % CMSG_ALIGNTO != 0))
-
-
 def MaybeRaiseSocketError(ret):
   if ret < 0:
     errno = ctypes.get_errno()
@@ -160,7 +157,7 @@ def _MakeMsgControl(optlist):
 
     datalen = len(data)
     msg_len = len(CMsgHdr) + datalen
-    padding = "\x00" * (PaddedLength(datalen) - datalen)
+    padding = "\x00" * util.GetPadLength(CMSG_ALIGNTO, datalen)
     msg_control += CMsgHdr((msg_len, msg_level, msg_type)).Pack()
     msg_control += data + padding
 
@@ -173,7 +170,8 @@ def _ParseMsgControl(buf):
   while len(buf) > 0:
     cmsghdr, buf = cstruct.Read(buf, CMsgHdr)
     datalen = cmsghdr.len - len(CMsgHdr)
-    data, buf = buf[:datalen], buf[PaddedLength(datalen):]
+    padlen = util.GetPadLength(CMSG_ALIGNTO, datalen)
+    data, buf = buf[:datalen], buf[padlen + datalen:]
 
     if cmsghdr.level == socket.IPPROTO_IP:
       if cmsghdr.type == IP_PKTINFO:

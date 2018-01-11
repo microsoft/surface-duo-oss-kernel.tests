@@ -302,15 +302,14 @@ class IPRoute(netlink.NetlinkSocket):
                 "IFLA_PROMISCUITY", "IFLA_NUM_RX_QUEUES",
                 "IFLA_NUM_TX_QUEUES", "NDA_PROBES", "RTAX_MTU",
                 "RTAX_HOPLIMIT", "IFLA_CARRIER_CHANGES", "IFLA_GSO_MAX_SEGS",
-                "IFLA_GSO_MAX_SIZE"]:
+                "IFLA_GSO_MAX_SIZE", "RTA_UID"]:
       data = struct.unpack("=I", nla_data)[0]
     elif name == "FRA_SUPPRESS_PREFIXLEN":
       data = struct.unpack("=i", nla_data)[0]
     elif name in ["IFLA_LINKMODE", "IFLA_OPERSTATE", "IFLA_CARRIER"]:
       data = ord(nla_data)
     elif name in ["IFA_ADDRESS", "IFA_LOCAL", "RTA_DST", "RTA_SRC",
-                  "RTA_GATEWAY", "RTA_PREFSRC", "RTA_UID",
-                  "NDA_DST"]:
+                  "RTA_GATEWAY", "RTA_PREFSRC", "NDA_DST"]:
       data = socket.inet_ntop(msg.family, nla_data)
     elif name in ["FRA_IIFNAME", "FRA_OIFNAME", "IFLA_IFNAME", "IFLA_QDISC",
                   "IFA_LABEL", "IFLA_INFO_KIND"]:
