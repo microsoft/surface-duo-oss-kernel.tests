@@ -314,7 +314,13 @@ class Ping6Test(multinetwork_base.MultiNetworkBaseTest):
                 "%08X:%08X" % (txmem, rxmem),
                 str(os.getuid()), "2", "0"]
     actual = self.ReadProcNetSocket(name)[-1]
+    # Check all the parameters except rxmem and txmem.
+    expected[3] = actual[3]
     self.assertListEqual(expected, actual)
+    # Check that rxmem and txmem don't differ too much from each other.
+    actual_txmem, actual_rxmem = expected[3].split(":")
+    self.assertAlmostEqual(txmem, int(actual_txmem, 16), delta=txmem / 4)
+    self.assertAlmostEqual(rxmem, int(actual_rxmem, 16), delta=rxmem / 4)
 
   def testIPv4SendWithNoConnection(self):
     s = net_test.IPv4PingSocket()
