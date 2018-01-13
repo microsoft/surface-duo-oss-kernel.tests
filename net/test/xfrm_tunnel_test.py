@@ -69,11 +69,12 @@ class XfrmTunnelTest(xfrm_base.XfrmBaseTest):
     local_outer = self.MyAddress(outer_version, underlying_netid)
     remote_outer = _GetRemoteOuterAddress(outer_version)
 
-    self.CreateTunnel(xfrm.XFRM_POLICY_OUT,
-                      xfrm.SrcDstSelector(local_inner, remote_inner),
-                      local_outer, remote_outer, _TEST_OUT_SPI,
-                      xfrm_base._ALGO_CBC_AES_256, xfrm_base._ALGO_HMAC_SHA1,
-                      None, underlying_netid)
+    self.xfrm.CreateTunnel(xfrm.XFRM_POLICY_OUT,
+                           xfrm.SrcDstSelector(local_inner, remote_inner),
+                           local_outer, remote_outer, _TEST_OUT_SPI,
+                           xfrm_base._ALGO_CBC_AES_256,
+                           xfrm_base._ALGO_HMAC_SHA1,
+                           None, underlying_netid)
 
     write_sock = socket(net_test.GetAddressFamily(inner_version), SOCK_DGRAM, 0)
     # Select an interface, which provides the source address of the inner
@@ -224,15 +225,17 @@ class XfrmVtiTest(xfrm_base.XfrmBaseTest):
     # For the VTI, the selectors are wildcard since packets will only
     # be selected if they have the appropriate mark, hence the inner
     # addresses are wildcard.
-    self.CreateTunnel(xfrm.XFRM_POLICY_OUT, None, local_outer, remote_outer,
-                      _TEST_OUT_SPI, xfrm_base._ALGO_CBC_AES_256,
-                      xfrm_base._ALGO_HMAC_SHA1,
-                      xfrm.ExactMatchMark(_TEST_OKEY), netid)
+    self.xfrm.CreateTunnel(xfrm.XFRM_POLICY_OUT, None, local_outer,
+                           remote_outer, _TEST_OUT_SPI,
+                           xfrm_base._ALGO_CBC_AES_256,
+                           xfrm_base._ALGO_HMAC_SHA1,
+                           xfrm.ExactMatchMark(_TEST_OKEY), netid)
 
-    self.CreateTunnel(xfrm.XFRM_POLICY_IN, None, remote_outer, local_outer,
-                      _TEST_IN_SPI, xfrm_base._ALGO_CBC_AES_256,
-                      xfrm_base._ALGO_HMAC_SHA1,
-                      xfrm.ExactMatchMark(_TEST_IKEY), None)
+    self.xfrm.CreateTunnel(xfrm.XFRM_POLICY_IN, None, remote_outer,
+                           local_outer, _TEST_IN_SPI,
+                           xfrm_base._ALGO_CBC_AES_256,
+                           xfrm_base._ALGO_HMAC_SHA1,
+                           xfrm.ExactMatchMark(_TEST_IKEY), None)
 
   def _CheckVtiInputOutput(self, netid, vti_netid, iface, outer_version,
                            inner_version, rx, tx):
