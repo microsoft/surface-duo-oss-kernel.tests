@@ -760,6 +760,28 @@ class XfrmOutputMarkTest(xfrm_base.XfrmBaseTest):
             xfrm.XFRM_MODE_TRANSPORT, 0, invalid_crypt,
             xfrm_base._ALGO_HMAC_SHA1, None, None, None, 0)
 
+  def testUpdateSaAddMark(self):
+    """Test that when an SA has no mark, it can be updated to add a mark."""
+    for version in [4, 6]:
+      spi = 0xABCD
+      # Test that an SA created with ALLOCSPI can be updated with the mark.
+      new_sa = self.xfrm.AllocSpi(net_test.GetWildcardAddress(version),
+                                  IPPROTO_ESP, spi, spi)
+      mark = xfrm.ExactMatchMark(0xf00d)
+      self.xfrm.AddSaInfo(net_test.GetWildcardAddress(version),
+                          net_test.GetWildcardAddress(version),
+                          spi, xfrm.XFRM_MODE_TUNNEL, 0,
+                          xfrm_base._ALGO_CBC_AES_256,
+                          xfrm_base._ALGO_HMAC_SHA1,
+                          None, None, mark, 0, is_update=True)
+      dump = self.xfrm.DumpSaInfo()
+      self.assertEquals(1, len(dump)) # check that update updated
+      sainfo, attributes = dump[0]
+      self.assertEquals(mark, attributes["XFRMA_MARK"])
+      self.xfrm.DeleteSaInfo(net_test.GetWildcardAddress(version),
+                             spi, IPPROTO_ESP, mark)
+
+      # TODO: we might also need to update the mark for a VALID SA.
 
 if __name__ == "__main__":
   unittest.main()

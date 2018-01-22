@@ -380,7 +380,7 @@ class Xfrm(netlink.NetlinkSocket):
     return self._SendNlRequest(msg_type, msg, flags)
 
   def AddSaInfo(self, src, dst, spi, mode, reqid, encryption, auth_trunc, aead,
-                encap, mark, output_mark):
+                encap, mark, output_mark, is_update=False):
     """Adds an IPsec security association.
 
     Args:
@@ -397,6 +397,8 @@ class Xfrm(netlink.NetlinkSocket):
       mark: A mark match specifier, such as returned by ExactMatchMark(), or
         None for an SA that matches all possible marks.
       output_mark: An integer, the output mark. 0 means unset.
+      is_update: If true, update an existing SA otherwise create a new SA. For
+        compatibility reasons, this value defaults to False.
     """
     proto = IPPROTO_ESP
     xfrm_id = XfrmId((PaddedAddress(dst), spi, proto))
@@ -450,26 +452,47 @@ class Xfrm(netlink.NetlinkSocket):
                          cur, stats, seq, reqid, family, mode, replay, flags))
     msg = sa.Pack() + nlattrs
     flags = netlink.NLM_F_REQUEST | netlink.NLM_F_ACK
-    self._SendNlRequest(XFRM_MSG_NEWSA, msg, flags)
+    nl_msg_type = XFRM_MSG_UPDSA if is_update else XFRM_MSG_NEWSA
+    self._SendNlRequest(nl_msg_type, msg, flags)
 
-  def DeleteSaInfo(self, daddr, spi, proto):
+  def DeleteSaInfo(self, dst, spi, proto, mark=None):
+    """Delete an SA from the SAD
+
+    Args:
+      dst: A string, the destination IP address. Forms part of the XFRM ID, and
+        must match the destination address of the packets sent by this SA.
+      spi: An integer, the SPI.
+      proto: The protocol DB of the SA, such as IPPROTO_ESP.
+      mark: A mark match specifier, such as returned by ExactMatchMark(), or
+        None for an SA without a Mark attribute.
+    """
     # TODO: deletes take a mark as well.
-    family = AF_INET6 if ":" in daddr else AF_INET
-    usersa_id = XfrmUsersaId((PaddedAddress(daddr), spi, family, proto))
-    flags = netlink.NLM_F_REQUEST | netlink.NLM_F_ACK
-    self._SendNlRequest(XFRM_MSG_DELSA, usersa_id.Pack(), flags)
+    family = AF_INET6 if ":" in dst else AF_INET
+    usersa_id = XfrmUsersaId((PaddedAddress(dst), spi, family, proto))
+    nlattrs = []
+    if mark is not None:
+      nlattrs.append((XFRMA_MARK, mark))
+    self.SendXfrmNlRequest(XFRM_MSG_DELSA, usersa_id, nlattrs)
 
   def AllocSpi(self, dst, proto, min_spi, max_spi):
     """Allocate (reserve) an SPI.
 
     This sends an XFRM_MSG_ALLOCSPI message and returns the resulting
     XfrmUsersaInfo struct.
+
+    Args:
+      dst: A string, the destination IP address. Forms part of the XFRM ID, and
+        must match the destination address of the packets sent by this SA.
+      proto: the protocol DB of the SA, such as IPPROTO_ESP.
+      min_spi: The minimum value of the acceptable SPI range (inclusive).
+      max_spi: The maximum value of the acceptable SPI range (inclusive).
     """
     spi = XfrmUserSpiInfo("\x00" * len(XfrmUserSpiInfo))
     spi.min = min_spi
     spi.max = max_spi
     spi.info.id.daddr = PaddedAddress(dst)
     spi.info.id.proto = proto
+    spi.info.family = AF_INET6 if ":" in dst else AF_INET
 
     msg = spi.Pack()
     flags = netlink.NLM_F_REQUEST
