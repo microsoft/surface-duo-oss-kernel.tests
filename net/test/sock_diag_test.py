@@ -470,9 +470,9 @@ class SockDiagTcpTest(tcp_test.TcpBaseTest, SockDiagBaseTest):
     self.assertTrue(children)
     for child, unused_args in children:
       self.assertEqual(tcp_test.TCP_SYN_RECV, child.state)
-      self.assertEqual(self.sock_diag.PaddedAddress(self.remoteaddr),
+      self.assertEqual(self.sock_diag.PaddedAddress(self.remotesockaddr),
                        child.id.dst)
-      self.assertEqual(self.sock_diag.PaddedAddress(self.myaddr),
+      self.assertEqual(self.sock_diag.PaddedAddress(self.mysockaddr),
                        child.id.src)
 
 
@@ -672,15 +672,13 @@ class SockDestroyTcpTest(tcp_test.TcpBaseTest, SockDiagBaseTest):
       family = {4: AF_INET, 5: AF_INET6, 6: AF_INET6}[version]
       s = net_test.Socket(family, SOCK_STREAM, IPPROTO_TCP)
       self.SelectInterface(s, self.netid, "mark")
-      if version == 5:
-        remoteaddr = "::ffff:" + self.GetRemoteAddress(4)
-        version = 4
-      else:
-        remoteaddr = self.GetRemoteAddress(version)
+
+      remotesockaddr = self.GetRemoteSocketAddress(version)
+      remoteaddr = self.GetRemoteAddress(version)
       s.bind(("", 0))
       _, sport = s.getsockname()[:2]
       self.CloseDuringBlockingCall(
-          s, lambda sock: sock.connect((remoteaddr, 53)), ECONNABORTED)
+          s, lambda sock: sock.connect((remotesockaddr, 53)), ECONNABORTED)
       desc, syn = packets.SYN(53, version, self.MyAddress(version, self.netid),
                               remoteaddr, sport=sport, seq=None)
       self.ExpectPacketOn(self.netid, desc, syn)
@@ -805,7 +803,7 @@ class SockDestroyUdpTest(SockDiagBaseTest):
   def testSocketAddressesAfterClose(self):
     for version in 4, 5, 6:
       netid = random.choice(self.NETIDS)
-      dst = self.GetRemoteAddress(version)
+      dst = self.GetRemoteSocketAddress(version)
       family = {4: AF_INET, 5: AF_INET6, 6: AF_INET6}[version]
       unspec = {4: "0.0.0.0", 5: "::", 6: "::"}[version]
 
@@ -819,7 +817,7 @@ class SockDestroyUdpTest(SockDiagBaseTest):
 
       # Closing a socket bound to an IP address leaves the address as is.
       s = self.BuildSocket(version, net_test.UDPSocket, netid, "mark")
-      src = self.MyAddress(version, netid)
+      src = self.MySocketAddress(version, netid)
       s.bind((src, 0))
       s.connect((dst, 53))
       port = s.getsockname()[1]
@@ -835,7 +833,7 @@ class SockDestroyUdpTest(SockDiagBaseTest):
 
       # Closing a socket bound to IP address and port leaves both as is.
       s = self.BuildSocket(version, net_test.UDPSocket, netid, "mark")
-      src = self.MyAddress(version, netid)
+      src = self.MySocketAddress(version, netid)
       port = self.BindToRandomPort(s, src)
       self.sock_diag.CloseSocketFromFd(s)
       self.assertEqual((src, port), s.getsockname()[:2])

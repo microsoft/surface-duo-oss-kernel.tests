@@ -175,8 +175,13 @@ class MultiNetworkBaseTest(net_test.NetworkTest):
   @classmethod
   def MyAddress(cls, version, netid):
     return {4: cls._MyIPv4Address(netid),
-            5: "::ffff:" + cls._MyIPv4Address(netid),
+            5: cls._MyIPv4Address(netid),
             6: cls._MyIPv6Address(netid)}[version]
+
+  @classmethod
+  def MySocketAddress(cls, version, netid):
+    addr = cls.MyAddress(version, netid)
+    return "::ffff:" + addr if version == 5 else addr
 
   @classmethod
   def MyLinkLocalAddress(cls, netid):
@@ -465,10 +470,14 @@ class MultiNetworkBaseTest(net_test.NetworkTest):
 
   def GetRemoteAddress(self, version):
     return {4: self.IPV4_ADDR,
-            5: "::ffff:" + self.IPV4_ADDR,
+            5: self.IPV4_ADDR,
             6: self.IPV6_ADDR}[version]
 
-  def GetOtherRemoteAddress(self, version):
+  def GetRemoteSocketAddress(self, version):
+    addr = self.GetRemoteAddress(version)
+    return "::ffff:" + addr if version == 5 else addr
+
+  def GetOtherRemoteSocketAddress(self, version):
     return {4: self.IPV4_ADDR2,
             5: "::ffff:" + self.IPV4_ADDR2,
             6: self.IPV6_ADDR2}[version]
