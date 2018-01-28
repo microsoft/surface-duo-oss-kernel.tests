@@ -14,6 +14,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import ctypes
 import errno
 import os
 import random
@@ -296,10 +297,14 @@ class OutgoingTest(multinetwork_base.MultiNetworkBaseTest):
           net_test.SetFlowLabel(s, net_test.IPV6_ADDR, 0xbeef)
 
           # Specify some arbitrary options.
+          # We declare the flowlabel as ctypes.c_uint32 because on a 32-bit
+          # Python interpreter an integer greater than 0x7fffffff (such as our
+          # chosen flowlabel after being passed through htonl) is converted to
+          # long, and _MakeMsgControl doesn't know what to do with longs.
           cmsgs = [
               (net_test.SOL_IPV6, IPV6_HOPLIMIT, 39),
               (net_test.SOL_IPV6, IPV6_TCLASS, 0x83),
-              (net_test.SOL_IPV6, IPV6_FLOWINFO, int(htonl(0xbeef))),
+              (net_test.SOL_IPV6, IPV6_FLOWINFO, ctypes.c_uint(htonl(0xbeef))),
           ]
         else:
           # Support for setting IPv4 TOS and TTL via cmsg only appeared in 3.13.
