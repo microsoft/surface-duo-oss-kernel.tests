@@ -926,7 +926,7 @@ class PMTUTest(multinetwork_base.InboundMarkingTest):
         # If this is a connected socket, make sure the socket MTU was set.
         # Note that in IPv4 this only started working in Linux 3.6!
         if use_connect and (version == 6 or net_test.LINUX_VERSION >= (3, 6)):
-          self.assertEquals(1280, self.GetSocketMTU(version, s))
+          self.assertEquals(packets.PTB_MTU, self.GetSocketMTU(version, s))
 
         s.close()
 
@@ -936,7 +936,7 @@ class PMTUTest(multinetwork_base.InboundMarkingTest):
         # here we use a mark for simplicity.
         s2 = self.BuildSocket(version, net_test.UDPSocket, netid, "mark")
         s2.connect((dstaddr, 1234))
-        self.assertEquals(1280, self.GetSocketMTU(version, s2))
+        self.assertEquals(packets.PTB_MTU, self.GetSocketMTU(version, s2))
 
         # Also check the MTU reported by ip route get, this time using the oif.
         routes = self.iproute.GetRoutes(dstaddr, self.ifindices[netid], 0, None)
@@ -945,7 +945,7 @@ class PMTUTest(multinetwork_base.InboundMarkingTest):
         rtmsg, attributes = route
         self.assertEquals(iproute.RTN_UNICAST, rtmsg.type)
         metrics = attributes["RTA_METRICS"]
-        self.assertEquals(metrics["RTAX_MTU"], 1280)
+        self.assertEquals(packets.PTB_MTU, metrics["RTAX_MTU"])
 
   def testIPv4BasicPMTU(self):
     """Tests IPv4 path MTU discovery.

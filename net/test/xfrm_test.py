@@ -54,7 +54,7 @@ class XfrmFunctionalTest(xfrm_base.XfrmBaseTest):
     udp_hdr = packet[scapy.UDP]
     self.assertEquals(4500, udp_hdr.dport)
     self.assertEquals(length, len(udp_hdr))
-    esp_hdr, _ = cstruct.Read(str(udp_hdr.load), xfrm.EspHdr)
+    esp_hdr, _ = cstruct.Read(str(udp_hdr.payload), xfrm.EspHdr)
     # FIXME: this file currently swaps SPI byte order manually, so SPI needs to
     # be double-swapped here.
     self.assertEquals(xfrm.EspHdr((spi, seq)), esp_hdr)
