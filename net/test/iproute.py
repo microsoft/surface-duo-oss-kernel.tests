@@ -399,8 +399,9 @@ class IPRoute(netlink.NetlinkSocket):
         else:
           raise
 
-  def FwmarkRule(self, version, is_add, fwmark, table, priority):
+  def FwmarkRule(self, version, is_add, fwmark, fwmask, table, priority):
     nlattr = self._NlAttrU32(FRA_FWMARK, fwmark)
+    nlattr += self._NlAttrU32(FRA_FWMASK, fwmask)
     return self._Rule(version, is_add, RTN_UNICAST, table, nlattr, priority)
 
   def IifRule(self, version, is_add, iif, table, priority):
@@ -421,7 +422,7 @@ class IPRoute(netlink.NetlinkSocket):
     return self._Rule(version, is_add, RTN_UNREACHABLE, None, None, priority)
 
   def DefaultRule(self, version, is_add, table, priority):
-    return self.FwmarkRule(version, is_add, 0, table, priority)
+    return self.FwmarkRule(version, is_add, 0, 0, table, priority)
 
   def CommandToString(self, command, data):
     try:

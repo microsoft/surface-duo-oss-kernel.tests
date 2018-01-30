@@ -108,6 +108,11 @@ class MultiNetworkBaseTest(net_test.NetworkTest):
   PRIORITY_DEFAULT = 999
   PRIORITY_UNREACHABLE = 1000
 
+  # Actual device routing is more complicated, involving more than one rule
+  # per NetId, but here we make do with just one rule that selects the lower
+  # 16 bits.
+  NETID_FWMASK = 0xffff
+
   # For convenience.
   IPV4_ADDR = net_test.IPV4_ADDR
   IPV6_ADDR = net_test.IPV6_ADDR
@@ -263,7 +268,7 @@ class MultiNetworkBaseTest(net_test.NetworkTest):
       cls.iproute.UidRangeRule(version, is_add, start, end, table,
                                cls.PRIORITY_UID)
       cls.iproute.OifRule(version, is_add, iface, table, cls.PRIORITY_OIF)
-      cls.iproute.FwmarkRule(version, is_add, netid, table,
+      cls.iproute.FwmarkRule(version, is_add, netid, cls.NETID_FWMASK, table,
                              cls.PRIORITY_FWMARK)
 
       # Configure routing and addressing.
