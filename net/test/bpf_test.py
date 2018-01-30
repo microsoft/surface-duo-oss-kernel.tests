@@ -27,7 +27,7 @@ import net_test
 import sock_diag
 
 libc = ctypes.CDLL(ctypes.util.find_library("c"), use_errno=True)
-HAVE_EBPF_SUPPORT = net_test.LINUX_VERSION >= (4, 4, 0)
+HAVE_EBPF_SUPPORT = net_test.LINUX_VERSION >= (4, 9, 0)
 HAVE_EBPF_ACCOUNTING = net_test.LINUX_VERSION >= (4, 9, 0)
 KEY_SIZE = 8
 VALUE_SIZE = 4
