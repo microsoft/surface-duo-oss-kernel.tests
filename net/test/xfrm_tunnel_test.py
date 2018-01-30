@@ -189,7 +189,7 @@ class XfrmVtiTest(xfrm_base.XfrmBaseTest):
       self.iproute.UidRangeRule(version, is_add, start, end, table,
                                 self.PRIORITY_UID)
       self.iproute.OifRule(version, is_add, ifname, table, self.PRIORITY_OIF)
-      self.iproute.FwmarkRule(version, is_add, netid, table,
+      self.iproute.FwmarkRule(version, is_add, netid, self.NETID_FWMASK, table,
                               self.PRIORITY_FWMARK)
       if is_add:
         self.iproute.AddAddress(
