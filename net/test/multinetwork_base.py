@@ -404,6 +404,9 @@ class MultiNetworkBaseTest(net_test.NetworkTest):
     cls.loglevel = cls.GetConsoleLogLevel()
     cls.SetConsoleLogLevel(net_test.KERN_INFO)
 
+    # When running on device, don't send connections through FwmarkServer.
+    os.environ["ANDROID_NO_USE_FWMARK_CLIENT"] = "1"
+
     # Uncomment to look around at interface and rule configuration while
     # running in the background. (Once the test finishes running, all the
     # interfaces and rules are gone.)
@@ -411,6 +414,8 @@ class MultiNetworkBaseTest(net_test.NetworkTest):
 
   @classmethod
   def tearDownClass(cls):
+    del os.environ["ANDROID_NO_USE_FWMARK_CLIENT"]
+
     for version in [4, 6]:
       try:
         cls.iproute.UnreachableRule(version, False, cls.PRIORITY_UNREACHABLE)
