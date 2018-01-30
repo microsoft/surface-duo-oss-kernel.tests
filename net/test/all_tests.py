@@ -14,6 +14,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import sys
 import unittest
 
 test_modules = [
@@ -25,7 +26,6 @@ test_modules = [
     'leak_test',
     'multinetwork_test',
     'neighbour_test',
-    'net_test',
     'pf_key_test',
     'ping6_test',
     'qtaguid_test',
@@ -45,4 +45,4 @@ if __name__ == '__main__':
   loader = unittest.defaultTestLoader
   test_suite = loader.loadTestsFromNames(test_modules)
   runner = unittest.TextTestRunner(verbosity=2)
-  runner.run(test_suite)
+  sys.exit(runner.run(test_suite))
