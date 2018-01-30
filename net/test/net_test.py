@@ -344,7 +344,7 @@ def RunIptablesCommand(version, args):
   iptables = {4: "iptables", 6: "ip6tables"}[version]
   iptables_path = "/sbin/" + iptables
   if not os.access(iptables_path, os.X_OK):
-    iptables_path = "/system/bin" + iptables
+    iptables_path = "/system/bin/" + iptables
   return os.spawnvp(os.P_WAIT, iptables_path, [iptables_path] + args.split(" "))
 
 # Determine network configuration.
