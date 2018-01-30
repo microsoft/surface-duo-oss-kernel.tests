@@ -80,6 +80,10 @@ class XfrmFunctionalTest(xfrm_base.XfrmBaseTest):
             xfrm_base._ENCRYPTION_KEY_256.encode("hex")))
 
     actual = subprocess.check_output("ip xfrm state".split())
+    # Newer versions of IP also show anti-replay context. Don't choke if it's
+    # missing.
+    actual = actual.replace(
+        "\tanti-replay context: seq 0x0, oseq 0x0, bitmap 0x00000000\n", "")
     try:
       self.assertMultiLineEqual(expected, actual)
     finally:
