@@ -448,7 +448,7 @@ class TCPAcceptTest(multinetwork_base.InboundMarkingTest):
       self.InvalidateDstCache(version, netid)
 
     if mode == self.MODE_INCOMING_MARK:
-      self.assertEquals(netid, mark,
+      self.assertEquals(netid, mark & self.NETID_FWMASK,
                         msg + ": Accepted socket: Expected mark %d, got %d" % (
                             netid, mark))
     elif mode != self.MODE_EXPLICIT_MARK:
@@ -1085,9 +1085,10 @@ class UidRoutingTest(multinetwork_base.MultiNetworkBaseTest):
           self.iproute.UidRangeRule, version, False, start, end, table,
           priority)
 
+    fwmask = 0xfefefefe
     try:
       # Create a rule without a UID range.
-      self.iproute.FwmarkRule(version, True, 300, 301, priority + 1)
+      self.iproute.FwmarkRule(version, True, 300, fwmask, 301, priority + 1)
 
       # Check it doesn't have a UID range.
       rules = self.GetRulesAtPriority(version, priority + 1)
@@ -1096,7 +1097,7 @@ class UidRoutingTest(multinetwork_base.MultiNetworkBaseTest):
         self.assertIn("FRA_TABLE", attributes)
         self.assertNotIn("FRA_UID_RANGE", attributes)
     finally:
-      self.iproute.FwmarkRule(version, False, 300, 301, priority + 1)
+      self.iproute.FwmarkRule(version, False, 300, fwmask, 301, priority + 1)
 
     # Test that EEXIST worksfor UID range rules too. This behaviour was only
     # added in 4.8.
@@ -1200,6 +1201,7 @@ class UidRoutingTest(multinetwork_base.MultiNetworkBaseTest):
 class RulesTest(net_test.NetworkTest):
 
   RULE_PRIORITY = 99999
+  FWMASK = 0xffffffff
 
   def setUp(self):
     self.iproute = iproute.IPRoute()
@@ -1215,12 +1217,12 @@ class RulesTest(net_test.NetworkTest):
       # Add rules with mark 300 pointing at tables 301 and 302.
       # This checks for a kernel bug where deletion request for tables > 256
       # ignored the table.
-      self.iproute.FwmarkRule(version, True, 300, 301,
+      self.iproute.FwmarkRule(version, True, 300, self.FWMASK, 301,
                               priority=self.RULE_PRIORITY)
-      self.iproute.FwmarkRule(version, True, 300, 302,
+      self.iproute.FwmarkRule(version, True, 300, self.FWMASK, 302,
                               priority=self.RULE_PRIORITY)
       # Delete rule with mark 300 pointing at table 302.
-      self.iproute.FwmarkRule(version, False, 300, 302,
+      self.iproute.FwmarkRule(version, False, 300, self.FWMASK, 302,
                               priority=self.RULE_PRIORITY)
       # Check that the rule pointing at table 301 is still around.
       attributes = [a for _, a in self.iproute.DumpRules(version)
