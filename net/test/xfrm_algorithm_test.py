@@ -153,7 +153,7 @@ class XfrmAlgorithmTest(xfrm_base.XfrmBaseTest):
     netid = self.RandomNetid()
     family = net_test.GetAddressFamily(params["version"])
     local_addr = self.MyAddress(params["version"], netid)
-    remote_addr = self.GetRemoteAddress(params["version"])
+    remote_addr = self.GetRemoteSocketAddress(params["version"])
     crypt_left = (xfrm.XfrmAlgo((
         params["crypt"].name,
         params["crypt"].key_len)),
