@@ -108,6 +108,11 @@ class MultiNetworkBaseTest(net_test.NetworkTest):
   PRIORITY_DEFAULT = 999
   PRIORITY_UNREACHABLE = 1000
 
+  # Actual device routing is more complicated, involving more than one rule
+  # per NetId, but here we make do with just one rule that selects the lower
+  # 16 bits.
+  NETID_FWMASK = 0xffff
+
   # For convenience.
   IPV4_ADDR = net_test.IPV4_ADDR
   IPV6_ADDR = net_test.IPV6_ADDR
@@ -170,8 +175,13 @@ class MultiNetworkBaseTest(net_test.NetworkTest):
   @classmethod
   def MyAddress(cls, version, netid):
     return {4: cls._MyIPv4Address(netid),
-            5: "::ffff:" + cls._MyIPv4Address(netid),
+            5: cls._MyIPv4Address(netid),
             6: cls._MyIPv6Address(netid)}[version]
+
+  @classmethod
+  def MySocketAddress(cls, version, netid):
+    addr = cls.MyAddress(version, netid)
+    return "::ffff:" + addr if version == 5 else addr
 
   @classmethod
   def MyLinkLocalAddress(cls, netid):
@@ -263,7 +273,7 @@ class MultiNetworkBaseTest(net_test.NetworkTest):
       cls.iproute.UidRangeRule(version, is_add, start, end, table,
                                cls.PRIORITY_UID)
       cls.iproute.OifRule(version, is_add, iface, table, cls.PRIORITY_OIF)
-      cls.iproute.FwmarkRule(version, is_add, netid, table,
+      cls.iproute.FwmarkRule(version, is_add, netid, cls.NETID_FWMASK, table,
                              cls.PRIORITY_FWMARK)
 
       # Configure routing and addressing.
@@ -404,6 +414,9 @@ class MultiNetworkBaseTest(net_test.NetworkTest):
     cls.loglevel = cls.GetConsoleLogLevel()
     cls.SetConsoleLogLevel(net_test.KERN_INFO)
 
+    # When running on device, don't send connections through FwmarkServer.
+    os.environ["ANDROID_NO_USE_FWMARK_CLIENT"] = "1"
+
     # Uncomment to look around at interface and rule configuration while
     # running in the background. (Once the test finishes running, all the
     # interfaces and rules are gone.)
@@ -411,6 +424,8 @@ class MultiNetworkBaseTest(net_test.NetworkTest):
 
   @classmethod
   def tearDownClass(cls):
+    del os.environ["ANDROID_NO_USE_FWMARK_CLIENT"]
+
     for version in [4, 6]:
       try:
         cls.iproute.UnreachableRule(version, False, cls.PRIORITY_UNREACHABLE)
@@ -455,10 +470,14 @@ class MultiNetworkBaseTest(net_test.NetworkTest):
 
   def GetRemoteAddress(self, version):
     return {4: self.IPV4_ADDR,
-            5: "::ffff:" + self.IPV4_ADDR,
+            5: self.IPV4_ADDR,
             6: self.IPV6_ADDR}[version]
 
-  def GetOtherRemoteAddress(self, version):
+  def GetRemoteSocketAddress(self, version):
+    addr = self.GetRemoteAddress(version)
+    return "::ffff:" + addr if version == 5 else addr
+
+  def GetOtherRemoteSocketAddress(self, version):
     return {4: self.IPV4_ADDR2,
             5: "::ffff:" + self.IPV4_ADDR2,
             6: self.IPV6_ADDR2}[version]

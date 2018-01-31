@@ -54,7 +54,7 @@ class XfrmFunctionalTest(xfrm_base.XfrmBaseTest):
     udp_hdr = packet[scapy.UDP]
     self.assertEquals(4500, udp_hdr.dport)
     self.assertEquals(length, len(udp_hdr))
-    esp_hdr, _ = cstruct.Read(str(udp_hdr.load), xfrm.EspHdr)
+    esp_hdr, _ = cstruct.Read(str(udp_hdr.payload), xfrm.EspHdr)
     # FIXME: this file currently swaps SPI byte order manually, so SPI needs to
     # be double-swapped here.
     self.assertEquals(xfrm.EspHdr((spi, seq)), esp_hdr)
@@ -80,6 +80,10 @@ class XfrmFunctionalTest(xfrm_base.XfrmBaseTest):
             xfrm_base._ENCRYPTION_KEY_256.encode("hex")))
 
     actual = subprocess.check_output("ip xfrm state".split())
+    # Newer versions of IP also show anti-replay context. Don't choke if it's
+    # missing.
+    actual = actual.replace(
+        "\tanti-replay context: seq 0x0, oseq 0x0, bitmap 0x00000000\n", "")
     try:
       self.assertMultiLineEqual(expected, actual)
     finally:
@@ -100,14 +104,18 @@ class XfrmFunctionalTest(xfrm_base.XfrmBaseTest):
     netid = self.RandomNetid()
     self.SelectInterface(s, netid, "mark")
 
-    remoteaddr = self.GetRemoteAddress(version)
-    s.connect((remoteaddr, 53))
+    remotesockaddr = self.GetRemoteSocketAddress(version)
+    s.connect((remotesockaddr, 53))
     saddr, sport = s.getsockname()[:2]
     daddr, dport = s.getpeername()[:2]
+    if version == 5:
+      saddr = saddr.replace("::ffff:", "")
+      daddr = daddr.replace("::ffff:", "")
+
     reqid = 0
 
     desc, pkt = packets.UDP(version, saddr, daddr, sport=sport)
-    s.sendto(net_test.UDP_PAYLOAD, (remoteaddr, 53))
+    s.sendto(net_test.UDP_PAYLOAD, (remotesockaddr, 53))
     self.ExpectPacketOn(netid, "Send after socket, expected %s" % desc, pkt)
 
     # Using IPv4 XFRM on a dual-stack socket requires setting an AF_INET policy
@@ -122,7 +130,7 @@ class XfrmFunctionalTest(xfrm_base.XfrmBaseTest):
     # matches the socket policy we set.
     self.assertRaisesErrno(
         EAGAIN,
-        s.sendto, net_test.UDP_PAYLOAD, (remoteaddr, 53))
+        s.sendto, net_test.UDP_PAYLOAD, (remotesockaddr, 53))
 
     # Adding a matching SA causes the packet to go out encrypted. The SA's
     # SPI must match the one in our template, and the destination address must
@@ -131,7 +139,7 @@ class XfrmFunctionalTest(xfrm_base.XfrmBaseTest):
     self.CreateNewSa(
         net_test.GetWildcardAddress(xfrm_version),
         self.GetRemoteAddress(xfrm_version), TEST_SPI, reqid, None)
-    s.sendto(net_test.UDP_PAYLOAD, (remoteaddr, 53))
+    s.sendto(net_test.UDP_PAYLOAD, (remotesockaddr, 53))
     expected_length = xfrm_base.GetEspPacketLength(xfrm.XFRM_MODE_TRANSPORT,
                                                 version, False,
                                                 net_test.UDP_PAYLOAD,
@@ -140,7 +148,7 @@ class XfrmFunctionalTest(xfrm_base.XfrmBaseTest):
     self._ExpectEspPacketOn(netid, TEST_SPI, 1, expected_length, None, None)
 
     # Sending to another destination doesn't work: again, no matching SA.
-    remoteaddr2 = self.GetOtherRemoteAddress(version)
+    remoteaddr2 = self.GetOtherRemoteSocketAddress(version)
     self.assertRaisesErrno(
         EAGAIN,
         s.sendto, net_test.UDP_PAYLOAD, (remoteaddr2, 53))
@@ -149,7 +157,7 @@ class XfrmFunctionalTest(xfrm_base.XfrmBaseTest):
     # unencrypted packet going out.
     s2 = socket(family, SOCK_DGRAM, 0)
     self.SelectInterface(s2, netid, "mark")
-    s2.sendto(net_test.UDP_PAYLOAD, (remoteaddr, 53))
+    s2.sendto(net_test.UDP_PAYLOAD, (remotesockaddr, 53))
     pkts = self.ReadAllPacketsOn(netid)
     self.assertEquals(1, len(pkts))
     packet = pkts[0]
@@ -162,16 +170,16 @@ class XfrmFunctionalTest(xfrm_base.XfrmBaseTest):
                            IPPROTO_ESP)
     self.assertRaisesErrno(
         EAGAIN,
-        s.sendto, net_test.UDP_PAYLOAD, (remoteaddr, 53))
+        s.sendto, net_test.UDP_PAYLOAD, (remotesockaddr, 53))
 
     # Clear the socket policy and expect a cleartext packet.
     xfrm_base.SetPolicySockopt(s, family, None)
-    s.sendto(net_test.UDP_PAYLOAD, (remoteaddr, 53))
+    s.sendto(net_test.UDP_PAYLOAD, (remotesockaddr, 53))
     self.ExpectPacketOn(netid, "Send after clear, expected %s" % desc, pkt)
 
     # Clearing the policy twice is safe.
     xfrm_base.SetPolicySockopt(s, family, None)
-    s.sendto(net_test.UDP_PAYLOAD, (remoteaddr, 53))
+    s.sendto(net_test.UDP_PAYLOAD, (remotesockaddr, 53))
     self.ExpectPacketOn(netid, "Send after clear 2, expected %s" % desc, pkt)
 
     # Clearing if a policy was never set is safe.

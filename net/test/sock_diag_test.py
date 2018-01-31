@@ -34,7 +34,24 @@ import tcp_test
 
 NUM_SOCKETS = 30
 NO_BYTECODE = ""
-HAVE_KERNEL_SUPPORT = net_test.LINUX_VERSION >= (4, 9, 0)
+HAVE_SO_COOKIE_SUPPORT = net_test.LINUX_VERSION >= (4, 9, 0)
+
+
+def HaveUdpDiag():
+  # There is no way to tell whether a dump succeeded: if the appropriate handler
+  # wasn't found, __inet_diag_dump just returns an empty result instead of an
+  # error. So, just check to see if a UDP dump returns no sockets when we know
+  # it should return one.
+  s = socket(AF_INET6, SOCK_DGRAM, 0)
+  s.bind(("::", 0))
+  s.connect((s.getsockname()))
+  sd = sock_diag.SockDiag()
+  have_udp_diag = len(sd.DumpAllInetSockets(IPPROTO_UDP, "")) > 0
+  s.close()
+  return have_udp_diag
+
+
+HAVE_UDP_DIAG = HaveUdpDiag()
 
 
 class SockDiagBaseTest(multinetwork_base.MultiNetworkBaseTest):
@@ -332,7 +349,7 @@ class SockDiagTest(SockDiagBaseTest):
       cookie = sock.getsockopt(net_test.SOL_SOCKET, net_test.SO_COOKIE, 8)
       self.assertEqual(diag_msg.id.cookie, cookie)
 
-  @unittest.skipUnless(HAVE_KERNEL_SUPPORT, "SO_COOKIE not supported")
+  @unittest.skipUnless(HAVE_SO_COOKIE_SUPPORT, "SO_COOKIE not supported")
   def testGetsockoptcookie(self):
     self.CheckSocketCookie(AF_INET, "127.0.0.1")
     self.CheckSocketCookie(AF_INET6, "::1")
@@ -453,9 +470,9 @@ class SockDiagTcpTest(tcp_test.TcpBaseTest, SockDiagBaseTest):
     self.assertTrue(children)
     for child, unused_args in children:
       self.assertEqual(tcp_test.TCP_SYN_RECV, child.state)
-      self.assertEqual(self.sock_diag.PaddedAddress(self.remoteaddr),
+      self.assertEqual(self.sock_diag.PaddedAddress(self.remotesockaddr),
                        child.id.dst)
-      self.assertEqual(self.sock_diag.PaddedAddress(self.myaddr),
+      self.assertEqual(self.sock_diag.PaddedAddress(self.mysockaddr),
                        child.id.src)
 
 
@@ -655,15 +672,13 @@ class SockDestroyTcpTest(tcp_test.TcpBaseTest, SockDiagBaseTest):
       family = {4: AF_INET, 5: AF_INET6, 6: AF_INET6}[version]
       s = net_test.Socket(family, SOCK_STREAM, IPPROTO_TCP)
       self.SelectInterface(s, self.netid, "mark")
-      if version == 5:
-        remoteaddr = "::ffff:" + self.GetRemoteAddress(4)
-        version = 4
-      else:
-        remoteaddr = self.GetRemoteAddress(version)
+
+      remotesockaddr = self.GetRemoteSocketAddress(version)
+      remoteaddr = self.GetRemoteAddress(version)
       s.bind(("", 0))
       _, sport = s.getsockname()[:2]
       self.CloseDuringBlockingCall(
-          s, lambda sock: sock.connect((remoteaddr, 53)), ECONNABORTED)
+          s, lambda sock: sock.connect((remotesockaddr, 53)), ECONNABORTED)
       desc, syn = packets.SYN(53, version, self.MyAddress(version, self.netid),
                               remoteaddr, sport=sport, seq=None)
       self.ExpectPacketOn(self.netid, desc, syn)
@@ -748,6 +763,7 @@ class PollOnCloseTest(tcp_test.TcpBaseTest, SockDiagBaseTest):
     self.CheckPollDestroy(self.POLLIN_OUT, select.POLLOUT)
 
 
+@unittest.skipUnless(HAVE_UDP_DIAG, "INET_UDP_DIAG not enabled")
 class SockDestroyUdpTest(SockDiagBaseTest):
 
   """Tests SOCK_DESTROY on UDP sockets.
@@ -787,7 +803,7 @@ class SockDestroyUdpTest(SockDiagBaseTest):
   def testSocketAddressesAfterClose(self):
     for version in 4, 5, 6:
       netid = random.choice(self.NETIDS)
-      dst = self.GetRemoteAddress(version)
+      dst = self.GetRemoteSocketAddress(version)
       family = {4: AF_INET, 5: AF_INET6, 6: AF_INET6}[version]
       unspec = {4: "0.0.0.0", 5: "::", 6: "::"}[version]
 
@@ -801,7 +817,7 @@ class SockDestroyUdpTest(SockDiagBaseTest):
 
       # Closing a socket bound to an IP address leaves the address as is.
       s = self.BuildSocket(version, net_test.UDPSocket, netid, "mark")
-      src = self.MyAddress(version, netid)
+      src = self.MySocketAddress(version, netid)
       s.bind((src, 0))
       s.connect((dst, 53))
       port = s.getsockname()[1]
@@ -817,7 +833,7 @@ class SockDestroyUdpTest(SockDiagBaseTest):
 
       # Closing a socket bound to IP address and port leaves both as is.
       s = self.BuildSocket(version, net_test.UDPSocket, netid, "mark")
-      src = self.MyAddress(version, netid)
+      src = self.MySocketAddress(version, netid)
       port = self.BindToRandomPort(s, src)
       self.sock_diag.CloseSocketFromFd(s)
       self.assertEqual((src, port), s.getsockname()[:2])
@@ -864,6 +880,7 @@ class SockDestroyPermissionTest(SockDiagBaseTest):
     self.assertRaises(ValueError, self.sock_diag.CloseSocketFromFd, s)
 
 
+  @unittest.skipUnless(HAVE_UDP_DIAG, "INET_UDP_DIAG not enabled")
   def testUdp(self):
     self.CheckPermissions(SOCK_DGRAM)
 
@@ -998,11 +1015,12 @@ class SockDiagMarkTest(tcp_test.TcpBaseTest, SockDiagBaseTest):
       # Other TCP states are tested in SockDestroyTcpTest.
 
       # UDP sockets.
-      s = socket(family, SOCK_DGRAM, 0)
-      mark = self.SetRandomMark(s)
-      s.connect(("", 53))
-      self.assertSocketMarkIs(s, mark)
-      s.close()
+      if HAVE_UDP_DIAG:
+        s = socket(family, SOCK_DGRAM, 0)
+        mark = self.SetRandomMark(s)
+        s.connect(("", 53))
+        self.assertSocketMarkIs(s, mark)
+        s.close()
 
       # Basic test for SCTP. sctp_diag was only added in 4.7.
       if net_test.LINUX_VERSION >= (4, 7, 0):

@@ -14,6 +14,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import ctypes
 import errno
 import os
 import random
@@ -53,59 +54,64 @@ class OutgoingTest(multinetwork_base.MultiNetworkBaseTest):
   # How many times to run outgoing packet tests.
   ITERATIONS = 5
 
-  def CheckPingPacket(self, version, netid, routing_mode, dstaddr, packet):
+  def CheckPingPacket(self, version, netid, routing_mode, packet):
     s = self.BuildSocket(version, net_test.PingSocket, netid, routing_mode)
 
     myaddr = self.MyAddress(version, netid)
+    mysockaddr = self.MySocketAddress(version, netid)
     s.setsockopt(SOL_SOCKET, SO_REUSEADDR, 1)
-    s.bind((myaddr, packets.PING_IDENT))
+    s.bind((mysockaddr, packets.PING_IDENT))
     net_test.SetSocketTos(s, packets.PING_TOS)
 
+    dstaddr = self.GetRemoteAddress(version)
+    dstsockaddr = self.GetRemoteSocketAddress(version)
     desc, expected = packets.ICMPEcho(version, myaddr, dstaddr)
     msg = "IPv%d ping: expected %s on %s" % (
         version, desc, self.GetInterfaceName(netid))
 
-    s.sendto(packet + packets.PING_PAYLOAD, (dstaddr, 19321))
+    s.sendto(packet + packets.PING_PAYLOAD, (dstsockaddr, 19321))
 
     self.ExpectPacketOn(netid, msg, expected)
 
-  def CheckTCPSYNPacket(self, version, netid, routing_mode, dstaddr):
+  def CheckTCPSYNPacket(self, version, netid, routing_mode):
     s = self.BuildSocket(version, net_test.TCPSocket, netid, routing_mode)
 
-    if version == 6 and dstaddr.startswith("::ffff"):
-      version = 4
     myaddr = self.MyAddress(version, netid)
+    dstaddr = self.GetRemoteAddress(version)
+    dstsockaddr = self.GetRemoteSocketAddress(version)
     desc, expected = packets.SYN(53, version, myaddr, dstaddr,
                                  sport=None, seq=None)
 
+
     # Non-blocking TCP connects always return EINPROGRESS.
-    self.assertRaisesErrno(errno.EINPROGRESS, s.connect, (dstaddr, 53))
+    self.assertRaisesErrno(errno.EINPROGRESS, s.connect, (dstsockaddr, 53))
     msg = "IPv%s TCP connect: expected %s on %s" % (
         version, desc, self.GetInterfaceName(netid))
     self.ExpectPacketOn(netid, msg, expected)
     s.close()
 
-  def CheckUDPPacket(self, version, netid, routing_mode, dstaddr):
+  def CheckUDPPacket(self, version, netid, routing_mode):
     s = self.BuildSocket(version, net_test.UDPSocket, netid, routing_mode)
 
-    if version == 6 and dstaddr.startswith("::ffff"):
-      version = 4
     myaddr = self.MyAddress(version, netid)
+    dstaddr = self.GetRemoteAddress(version)
+    dstsockaddr = self.GetRemoteSocketAddress(version)
+
     desc, expected = packets.UDP(version, myaddr, dstaddr, sport=None)
     msg = "IPv%s UDP %%s: expected %s on %s" % (
         version, desc, self.GetInterfaceName(netid))
 
-    s.sendto(UDP_PAYLOAD, (dstaddr, 53))
+    s.sendto(UDP_PAYLOAD, (dstsockaddr, 53))
     self.ExpectPacketOn(netid, msg % "sendto", expected)
 
     # IP_UNICAST_IF doesn't seem to work on connected sockets, so no TCP.
     if routing_mode != "ucast_oif":
-      s.connect((dstaddr, 53))
+      s.connect((dstsockaddr, 53))
       s.send(UDP_PAYLOAD)
       self.ExpectPacketOn(netid, msg % "connect/send", expected)
       s.close()
 
-  def CheckRawGrePacket(self, version, netid, routing_mode, dstaddr):
+  def CheckRawGrePacket(self, version, netid, routing_mode):
     s = self.BuildSocket(version, net_test.RawGRESocket, netid, routing_mode)
 
     inner_version = {4: 6, 6: 4}[version]
@@ -117,6 +123,7 @@ class OutgoingTest(multinetwork_base.MultiNetworkBaseTest):
     # A GRE header can be as simple as two zero bytes and the ethertype.
     packet = struct.pack("!i", ethertype) + inner
     myaddr = self.MyAddress(version, netid)
+    dstaddr = self.GetRemoteAddress(version)
 
     s.sendto(packet, (dstaddr, IPPROTO_GRE))
     desc, expected = packets.GRE(version, myaddr, dstaddr, ethertype, inner)
@@ -125,34 +132,30 @@ class OutgoingTest(multinetwork_base.MultiNetworkBaseTest):
     self.ExpectPacketOn(netid, msg, expected)
 
   def CheckOutgoingPackets(self, routing_mode):
-    v4addr = self.IPV4_ADDR
-    v6addr = self.IPV6_ADDR
-    v4mapped = "::ffff:" + v4addr
-
     for _ in xrange(self.ITERATIONS):
       for netid in self.tuns:
 
-        self.CheckPingPacket(4, netid, routing_mode, v4addr, self.IPV4_PING)
+        self.CheckPingPacket(4, netid, routing_mode, self.IPV4_PING)
         # Kernel bug.
         if routing_mode != "oif":
-          self.CheckPingPacket(6, netid, routing_mode, v6addr, self.IPV6_PING)
+          self.CheckPingPacket(6, netid, routing_mode, self.IPV6_PING)
 
         # IP_UNICAST_IF doesn't seem to work on connected sockets, so no TCP.
         if routing_mode != "ucast_oif":
-          self.CheckTCPSYNPacket(4, netid, routing_mode, v4addr)
-          self.CheckTCPSYNPacket(6, netid, routing_mode, v6addr)
-          self.CheckTCPSYNPacket(6, netid, routing_mode, v4mapped)
+          self.CheckTCPSYNPacket(4, netid, routing_mode)
+          self.CheckTCPSYNPacket(6, netid, routing_mode)
+          self.CheckTCPSYNPacket(5, netid, routing_mode)
 
-        self.CheckUDPPacket(4, netid, routing_mode, v4addr)
-        self.CheckUDPPacket(6, netid, routing_mode, v6addr)
-        self.CheckUDPPacket(6, netid, routing_mode, v4mapped)
+        self.CheckUDPPacket(4, netid, routing_mode)
+        self.CheckUDPPacket(6, netid, routing_mode)
+        self.CheckUDPPacket(5, netid, routing_mode)
 
         # Creating raw sockets on non-root UIDs requires properly setting
         # capabilities, which is hard to do from Python.
         # IP_UNICAST_IF is not supported on raw sockets.
         if routing_mode not in ["uid", "ucast_oif"]:
-          self.CheckRawGrePacket(4, netid, routing_mode, v4addr)
-          self.CheckRawGrePacket(6, netid, routing_mode, v6addr)
+          self.CheckRawGrePacket(4, netid, routing_mode)
+          self.CheckRawGrePacket(6, netid, routing_mode)
 
   def testMarkRouting(self):
     """Checks that socket marking selects the right outgoing interface."""
@@ -296,10 +299,14 @@ class OutgoingTest(multinetwork_base.MultiNetworkBaseTest):
           net_test.SetFlowLabel(s, net_test.IPV6_ADDR, 0xbeef)
 
           # Specify some arbitrary options.
+          # We declare the flowlabel as ctypes.c_uint32 because on a 32-bit
+          # Python interpreter an integer greater than 0x7fffffff (such as our
+          # chosen flowlabel after being passed through htonl) is converted to
+          # long, and _MakeMsgControl doesn't know what to do with longs.
           cmsgs = [
               (net_test.SOL_IPV6, IPV6_HOPLIMIT, 39),
               (net_test.SOL_IPV6, IPV6_TCLASS, 0x83),
-              (net_test.SOL_IPV6, IPV6_FLOWINFO, int(htonl(0xbeef))),
+              (net_test.SOL_IPV6, IPV6_FLOWINFO, ctypes.c_uint(htonl(0xbeef))),
           ]
         else:
           # Support for setting IPv4 TOS and TTL via cmsg only appeared in 3.13.
@@ -448,7 +455,7 @@ class TCPAcceptTest(multinetwork_base.InboundMarkingTest):
       self.InvalidateDstCache(version, netid)
 
     if mode == self.MODE_INCOMING_MARK:
-      self.assertEquals(netid, mark,
+      self.assertEquals(netid, mark & self.NETID_FWMASK,
                         msg + ": Accepted socket: Expected mark %d, got %d" % (
                             netid, mark))
     elif mode != self.MODE_EXPLICIT_MARK:
@@ -921,7 +928,7 @@ class PMTUTest(multinetwork_base.InboundMarkingTest):
         # If this is a connected socket, make sure the socket MTU was set.
         # Note that in IPv4 this only started working in Linux 3.6!
         if use_connect and (version == 6 or net_test.LINUX_VERSION >= (3, 6)):
-          self.assertEquals(1280, self.GetSocketMTU(version, s))
+          self.assertEquals(packets.PTB_MTU, self.GetSocketMTU(version, s))
 
         s.close()
 
@@ -931,7 +938,7 @@ class PMTUTest(multinetwork_base.InboundMarkingTest):
         # here we use a mark for simplicity.
         s2 = self.BuildSocket(version, net_test.UDPSocket, netid, "mark")
         s2.connect((dstaddr, 1234))
-        self.assertEquals(1280, self.GetSocketMTU(version, s2))
+        self.assertEquals(packets.PTB_MTU, self.GetSocketMTU(version, s2))
 
         # Also check the MTU reported by ip route get, this time using the oif.
         routes = self.iproute.GetRoutes(dstaddr, self.ifindices[netid], 0, None)
@@ -940,7 +947,7 @@ class PMTUTest(multinetwork_base.InboundMarkingTest):
         rtmsg, attributes = route
         self.assertEquals(iproute.RTN_UNICAST, rtmsg.type)
         metrics = attributes["RTA_METRICS"]
-        self.assertEquals(metrics["RTAX_MTU"], 1280)
+        self.assertEquals(packets.PTB_MTU, metrics["RTAX_MTU"])
 
   def testIPv4BasicPMTU(self):
     """Tests IPv4 path MTU discovery.
@@ -1085,9 +1092,10 @@ class UidRoutingTest(multinetwork_base.MultiNetworkBaseTest):
           self.iproute.UidRangeRule, version, False, start, end, table,
           priority)
 
+    fwmask = 0xfefefefe
     try:
       # Create a rule without a UID range.
-      self.iproute.FwmarkRule(version, True, 300, 301, priority + 1)
+      self.iproute.FwmarkRule(version, True, 300, fwmask, 301, priority + 1)
 
       # Check it doesn't have a UID range.
       rules = self.GetRulesAtPriority(version, priority + 1)
@@ -1096,7 +1104,7 @@ class UidRoutingTest(multinetwork_base.MultiNetworkBaseTest):
         self.assertIn("FRA_TABLE", attributes)
         self.assertNotIn("FRA_UID_RANGE", attributes)
     finally:
-      self.iproute.FwmarkRule(version, False, 300, 301, priority + 1)
+      self.iproute.FwmarkRule(version, False, 300, fwmask, 301, priority + 1)
 
     # Test that EEXIST worksfor UID range rules too. This behaviour was only
     # added in 4.8.
@@ -1200,6 +1208,7 @@ class UidRoutingTest(multinetwork_base.MultiNetworkBaseTest):
 class RulesTest(net_test.NetworkTest):
 
   RULE_PRIORITY = 99999
+  FWMASK = 0xffffffff
 
   def setUp(self):
     self.iproute = iproute.IPRoute()
@@ -1215,12 +1224,12 @@ class RulesTest(net_test.NetworkTest):
       # Add rules with mark 300 pointing at tables 301 and 302.
       # This checks for a kernel bug where deletion request for tables > 256
       # ignored the table.
-      self.iproute.FwmarkRule(version, True, 300, 301,
+      self.iproute.FwmarkRule(version, True, 300, self.FWMASK, 301,
                               priority=self.RULE_PRIORITY)
-      self.iproute.FwmarkRule(version, True, 300, 302,
+      self.iproute.FwmarkRule(version, True, 300, self.FWMASK, 302,
                               priority=self.RULE_PRIORITY)
       # Delete rule with mark 300 pointing at table 302.
-      self.iproute.FwmarkRule(version, False, 300, 302,
+      self.iproute.FwmarkRule(version, False, 300, self.FWMASK, 302,
                               priority=self.RULE_PRIORITY)
       # Check that the rule pointing at table 301 is still around.
       attributes = [a for _, a in self.iproute.DumpRules(version)
