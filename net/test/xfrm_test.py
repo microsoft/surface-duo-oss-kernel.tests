@@ -54,7 +54,7 @@ class XfrmFunctionalTest(xfrm_base.XfrmBaseTest):
     udp_hdr = packet[scapy.UDP]
     self.assertEquals(4500, udp_hdr.dport)
     self.assertEquals(length, len(udp_hdr))
-    esp_hdr, _ = cstruct.Read(str(udp_hdr.load), xfrm.EspHdr)
+    esp_hdr, _ = cstruct.Read(str(udp_hdr.payload), xfrm.EspHdr)
     # FIXME: this file currently swaps SPI byte order manually, so SPI needs to
     # be double-swapped here.
     self.assertEquals(xfrm.EspHdr((spi, seq)), esp_hdr)
@@ -80,6 +80,10 @@ class XfrmFunctionalTest(xfrm_base.XfrmBaseTest):
             xfrm_base._ENCRYPTION_KEY_256.encode("hex")))
 
     actual = subprocess.check_output("ip xfrm state".split())
+    # Newer versions of IP also show anti-replay context. Don't choke if it's
+    # missing.
+    actual = actual.replace(
+        "\tanti-replay context: seq 0x0, oseq 0x0, bitmap 0x00000000\n", "")
     try:
       self.assertMultiLineEqual(expected, actual)
     finally:
