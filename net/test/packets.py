@@ -29,6 +29,8 @@ TCP_ACK = 16
 
 TCP_WINDOW = 14400
 
+PTB_MTU = 1280
+
 PING_IDENT = 0xff19
 PING_PAYLOAD = "foobarbaz"
 PING_SEQ = 3
@@ -152,13 +154,20 @@ def ICMPPortUnreachable(version, srcaddr, dstaddr, packet):
 
 def ICMPPacketTooBig(version, srcaddr, dstaddr, packet):
   if version == 4:
-    return ("ICMPv4 fragmentation needed",
-            scapy.IP(src=srcaddr, dst=dstaddr, proto=1) /
-            scapy.ICMPerror(type=3, code=4, unused=1280) / str(packet)[:64])
+    desc = "ICMPv4 fragmentation needed"
+    pkt = (scapy.IP(src=srcaddr, dst=dstaddr, proto=1) /
+           scapy.ICMPerror(type=3, code=4) / str(packet)[:64])
+    # Only newer versions of scapy understand that since RFC 1191, the last two
+    # bytes of a fragmentation needed ICMP error contain the MTU.
+    if hasattr(scapy.ICMP, "nexthopmtu"):
+      pkt[scapy.ICMPerror].nexthopmtu = PTB_MTU
+    else:
+      pkt[scapy.ICMPerror].unused = PTB_MTU
+    return desc, pkt
   else:
     return ("ICMPv6 Packet Too Big",
             scapy.IPv6(src=srcaddr, dst=dstaddr) /
-            scapy.ICMPv6PacketTooBig() / str(packet)[:1232])
+            scapy.ICMPv6PacketTooBig(mtu=PTB_MTU) / str(packet)[:1232])
 
 def ICMPEcho(version, srcaddr, dstaddr):
   ip = _GetIpLayer(version)

@@ -14,6 +14,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import ctypes
 import errno
 import os
 import random
@@ -296,10 +297,14 @@ class OutgoingTest(multinetwork_base.MultiNetworkBaseTest):
           net_test.SetFlowLabel(s, net_test.IPV6_ADDR, 0xbeef)
 
           # Specify some arbitrary options.
+          # We declare the flowlabel as ctypes.c_uint32 because on a 32-bit
+          # Python interpreter an integer greater than 0x7fffffff (such as our
+          # chosen flowlabel after being passed through htonl) is converted to
+          # long, and _MakeMsgControl doesn't know what to do with longs.
           cmsgs = [
               (net_test.SOL_IPV6, IPV6_HOPLIMIT, 39),
               (net_test.SOL_IPV6, IPV6_TCLASS, 0x83),
-              (net_test.SOL_IPV6, IPV6_FLOWINFO, int(htonl(0xbeef))),
+              (net_test.SOL_IPV6, IPV6_FLOWINFO, ctypes.c_uint(htonl(0xbeef))),
           ]
         else:
           # Support for setting IPv4 TOS and TTL via cmsg only appeared in 3.13.
@@ -921,7 +926,7 @@ class PMTUTest(multinetwork_base.InboundMarkingTest):
         # If this is a connected socket, make sure the socket MTU was set.
         # Note that in IPv4 this only started working in Linux 3.6!
         if use_connect and (version == 6 or net_test.LINUX_VERSION >= (3, 6)):
-          self.assertEquals(1280, self.GetSocketMTU(version, s))
+          self.assertEquals(packets.PTB_MTU, self.GetSocketMTU(version, s))
 
         s.close()
 
@@ -931,7 +936,7 @@ class PMTUTest(multinetwork_base.InboundMarkingTest):
         # here we use a mark for simplicity.
         s2 = self.BuildSocket(version, net_test.UDPSocket, netid, "mark")
         s2.connect((dstaddr, 1234))
-        self.assertEquals(1280, self.GetSocketMTU(version, s2))
+        self.assertEquals(packets.PTB_MTU, self.GetSocketMTU(version, s2))
 
         # Also check the MTU reported by ip route get, this time using the oif.
         routes = self.iproute.GetRoutes(dstaddr, self.ifindices[netid], 0, None)
@@ -940,7 +945,7 @@ class PMTUTest(multinetwork_base.InboundMarkingTest):
         rtmsg, attributes = route
         self.assertEquals(iproute.RTN_UNICAST, rtmsg.type)
         metrics = attributes["RTA_METRICS"]
-        self.assertEquals(metrics["RTAX_MTU"], 1280)
+        self.assertEquals(packets.PTB_MTU, metrics["RTAX_MTU"])
 
   def testIPv4BasicPMTU(self):
     """Tests IPv4 path MTU discovery.
