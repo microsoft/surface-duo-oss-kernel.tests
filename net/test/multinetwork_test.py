@@ -54,59 +54,64 @@ class OutgoingTest(multinetwork_base.MultiNetworkBaseTest):
   # How many times to run outgoing packet tests.
   ITERATIONS = 5
 
-  def CheckPingPacket(self, version, netid, routing_mode, dstaddr, packet):
+  def CheckPingPacket(self, version, netid, routing_mode, packet):
     s = self.BuildSocket(version, net_test.PingSocket, netid, routing_mode)
 
     myaddr = self.MyAddress(version, netid)
+    mysockaddr = self.MySocketAddress(version, netid)
     s.setsockopt(SOL_SOCKET, SO_REUSEADDR, 1)
-    s.bind((myaddr, packets.PING_IDENT))
+    s.bind((mysockaddr, packets.PING_IDENT))
     net_test.SetSocketTos(s, packets.PING_TOS)
 
+    dstaddr = self.GetRemoteAddress(version)
+    dstsockaddr = self.GetRemoteSocketAddress(version)
     desc, expected = packets.ICMPEcho(version, myaddr, dstaddr)
     msg = "IPv%d ping: expected %s on %s" % (
         version, desc, self.GetInterfaceName(netid))
 
-    s.sendto(packet + packets.PING_PAYLOAD, (dstaddr, 19321))
+    s.sendto(packet + packets.PING_PAYLOAD, (dstsockaddr, 19321))
 
     self.ExpectPacketOn(netid, msg, expected)
 
-  def CheckTCPSYNPacket(self, version, netid, routing_mode, dstaddr):
+  def CheckTCPSYNPacket(self, version, netid, routing_mode):
     s = self.BuildSocket(version, net_test.TCPSocket, netid, routing_mode)
 
-    if version == 6 and dstaddr.startswith("::ffff"):
-      version = 4
     myaddr = self.MyAddress(version, netid)
+    dstaddr = self.GetRemoteAddress(version)
+    dstsockaddr = self.GetRemoteSocketAddress(version)
     desc, expected = packets.SYN(53, version, myaddr, dstaddr,
                                  sport=None, seq=None)
 
+
     # Non-blocking TCP connects always return EINPROGRESS.
-    self.assertRaisesErrno(errno.EINPROGRESS, s.connect, (dstaddr, 53))
+    self.assertRaisesErrno(errno.EINPROGRESS, s.connect, (dstsockaddr, 53))
     msg = "IPv%s TCP connect: expected %s on %s" % (
         version, desc, self.GetInterfaceName(netid))
     self.ExpectPacketOn(netid, msg, expected)
     s.close()
 
-  def CheckUDPPacket(self, version, netid, routing_mode, dstaddr):
+  def CheckUDPPacket(self, version, netid, routing_mode):
     s = self.BuildSocket(version, net_test.UDPSocket, netid, routing_mode)
 
-    if version == 6 and dstaddr.startswith("::ffff"):
-      version = 4
     myaddr = self.MyAddress(version, netid)
+    dstaddr = self.GetRemoteAddress(version)
+    dstsockaddr = self.GetRemoteSocketAddress(version)
+
     desc, expected = packets.UDP(version, myaddr, dstaddr, sport=None)
     msg = "IPv%s UDP %%s: expected %s on %s" % (
         version, desc, self.GetInterfaceName(netid))
 
-    s.sendto(UDP_PAYLOAD, (dstaddr, 53))
+    s.sendto(UDP_PAYLOAD, (dstsockaddr, 53))
     self.ExpectPacketOn(netid, msg % "sendto", expected)
 
     # IP_UNICAST_IF doesn't seem to work on connected sockets, so no TCP.
     if routing_mode != "ucast_oif":
-      s.connect((dstaddr, 53))
+      s.connect((dstsockaddr, 53))
       s.send(UDP_PAYLOAD)
       self.ExpectPacketOn(netid, msg % "connect/send", expected)
       s.close()
 
-  def CheckRawGrePacket(self, version, netid, routing_mode, dstaddr):
+  def CheckRawGrePacket(self, version, netid, routing_mode):
     s = self.BuildSocket(version, net_test.RawGRESocket, netid, routing_mode)
 
     inner_version = {4: 6, 6: 4}[version]
@@ -118,6 +123,7 @@ class OutgoingTest(multinetwork_base.MultiNetworkBaseTest):
     # A GRE header can be as simple as two zero bytes and the ethertype.
     packet = struct.pack("!i", ethertype) + inner
     myaddr = self.MyAddress(version, netid)
+    dstaddr = self.GetRemoteAddress(version)
 
     s.sendto(packet, (dstaddr, IPPROTO_GRE))
     desc, expected = packets.GRE(version, myaddr, dstaddr, ethertype, inner)
@@ -126,34 +132,30 @@ class OutgoingTest(multinetwork_base.MultiNetworkBaseTest):
     self.ExpectPacketOn(netid, msg, expected)
 
   def CheckOutgoingPackets(self, routing_mode):
-    v4addr = self.IPV4_ADDR
-    v6addr = self.IPV6_ADDR
-    v4mapped = "::ffff:" + v4addr
-
     for _ in xrange(self.ITERATIONS):
       for netid in self.tuns:
 
-        self.CheckPingPacket(4, netid, routing_mode, v4addr, self.IPV4_PING)
+        self.CheckPingPacket(4, netid, routing_mode, self.IPV4_PING)
         # Kernel bug.
         if routing_mode != "oif":
-          self.CheckPingPacket(6, netid, routing_mode, v6addr, self.IPV6_PING)
+          self.CheckPingPacket(6, netid, routing_mode, self.IPV6_PING)
 
         # IP_UNICAST_IF doesn't seem to work on connected sockets, so no TCP.
         if routing_mode != "ucast_oif":
-          self.CheckTCPSYNPacket(4, netid, routing_mode, v4addr)
-          self.CheckTCPSYNPacket(6, netid, routing_mode, v6addr)
-          self.CheckTCPSYNPacket(6, netid, routing_mode, v4mapped)
+          self.CheckTCPSYNPacket(4, netid, routing_mode)
+          self.CheckTCPSYNPacket(6, netid, routing_mode)
+          self.CheckTCPSYNPacket(5, netid, routing_mode)
 
-        self.CheckUDPPacket(4, netid, routing_mode, v4addr)
-        self.CheckUDPPacket(6, netid, routing_mode, v6addr)
-        self.CheckUDPPacket(6, netid, routing_mode, v4mapped)
+        self.CheckUDPPacket(4, netid, routing_mode)
+        self.CheckUDPPacket(6, netid, routing_mode)
+        self.CheckUDPPacket(5, netid, routing_mode)
 
         # Creating raw sockets on non-root UIDs requires properly setting
         # capabilities, which is hard to do from Python.
         # IP_UNICAST_IF is not supported on raw sockets.
         if routing_mode not in ["uid", "ucast_oif"]:
-          self.CheckRawGrePacket(4, netid, routing_mode, v4addr)
-          self.CheckRawGrePacket(6, netid, routing_mode, v6addr)
+          self.CheckRawGrePacket(4, netid, routing_mode)
+          self.CheckRawGrePacket(6, netid, routing_mode)
 
   def testMarkRouting(self):
     """Checks that socket marking selects the right outgoing interface."""
