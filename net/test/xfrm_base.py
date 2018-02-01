@@ -235,7 +235,7 @@ def EncryptPacketWithNull(packet, spi, seq, tun_addrs):
   if not udp_layer:
     raise ValueError("Expected a UDP packet")
   # Build an ESP header.
-  esp_hdr = scapy.Raw(xfrm.EspHdr((spi, seq)).Pack())
+  esp_packet = scapy.Raw(xfrm.EspHdr((spi, seq)).Pack())
 
   if tun_addrs:
     tsrc_addr, tdst_addr = tun_addrs
@@ -262,9 +262,9 @@ def EncryptPacketWithNull(packet, spi, seq, tun_addrs):
   trailer = padding + struct.pack("BB", padlen, esp_nexthdr)
 
   # Assemble the packet.
-  esp_hdr.payload = inner_layer
+  esp_packet.payload = scapy.Raw(inner_layer)
   packet = new_ip_layer if new_ip_layer else packet
-  packet.payload = str(esp_hdr) + trailer
+  packet.payload = scapy.Raw(str(esp_packet) + trailer)
 
   # TODO: Can we simplify this and avoid the initial copy()?
   # Fix the IPv4/IPv6 headers.
