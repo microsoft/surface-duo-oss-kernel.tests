@@ -115,8 +115,8 @@ class TcpFastOpenTest(multinetwork_base.MultiNetworkBaseTest):
     desc, syn = packets.SYN(53, version, myaddr, remoteaddr, port, seq=None)
     t = syn.getlayer(scapy.TCP)
     t.options = [ (TCPOPT_FASTOPEN, "helloT"), ("NOP", None), ("NOP", None)]
-    t.payload = net_test.UDP_PAYLOAD
-    msg = "TFO write, expected %s" % syn
+    t.payload = scapy.Raw(net_test.UDP_PAYLOAD)
+    msg = "TFO write, expected %s" % desc
     self.ExpectPacketOn(netid, msg, syn)
 
   @unittest.skipUnless(net_test.LINUX_VERSION >= (4, 9, 0), "not yet backported")
