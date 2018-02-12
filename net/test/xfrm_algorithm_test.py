@@ -136,7 +136,6 @@ class XfrmAlgorithmTest(xfrm_base.XfrmLazyTest):
     new_name = new_name.replace("(", "-").replace(")", "")  # remove parens
     setattr(cls, new_name, TestClosure)
 
-  @unittest.skipIf(net_test.LINUX_VERSION[:2] == (3, 18), "b/63589559")
   def ParamTestSocketPolicySimple(self, params):
     """Test two-way traffic using transport mode and socket policies."""
 
