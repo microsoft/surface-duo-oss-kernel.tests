@@ -14,6 +14,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from importlib import import_module
 import sys
 import unittest
 
@@ -42,6 +43,13 @@ test_modules = [
 ]
 
 if __name__ == '__main__':
+  # First, run InjectTests on all modules, to ensure that any parameterized
+  # tests in those modules are injected.
+  for name in test_modules:
+    import_module(name)
+    if hasattr(sys.modules[name], "InjectTests"):
+      sys.modules[name].InjectTests()
+
   loader = unittest.defaultTestLoader
   test_suite = loader.loadTestsFromNames(test_modules)
   runner = unittest.TextTestRunner(verbosity=2)
