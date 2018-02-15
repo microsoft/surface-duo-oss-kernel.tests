@@ -47,7 +47,7 @@ TEST_SPI2 = 0x1235
 
 
 
-class XfrmFunctionalTest(xfrm_base.XfrmBaseTest):
+class XfrmFunctionalTest(xfrm_base.XfrmLazyTest):
 
   def assertIsUdpEncapEsp(self, packet, spi, seq, length):
     self.assertEquals(IPPROTO_UDP, packet.proto)
@@ -666,7 +666,7 @@ class XfrmFunctionalTest(xfrm_base.XfrmBaseTest):
   def testPolicyDifferByDirectionV6(self):
     self._CheckPolicyDifferByDirection(6)
 
-class XfrmOutputMarkTest(xfrm_base.XfrmBaseTest):
+class XfrmOutputMarkTest(xfrm_base.XfrmLazyTest):
 
   def _CheckTunnelModeOutputMark(self, version, tunsrc, mark, expected_netid):
     """Tests sending UDP packets to tunnel mode SAs with output marks.
