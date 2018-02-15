@@ -39,68 +39,6 @@ _ALGO_CBC_AES_256 = (xfrm.XfrmAlgo((xfrm.XFRM_EALG_CBC_AES, 256)),
 
 # Match all bits of the mark
 MARK_MASK_ALL = 0xffffffff
-ALL_ALGORITHMS = 0xffffffff
-
-XFRM_ADDR_ANY = xfrm.PaddedAddress("::")
-
-
-def UserPolicy(direction, selector):
-  """Create an IPsec policy.
-
-  Args:
-    direction: XFRM_POLICY_IN or XFRM_POLICY_OUT
-    selector: An XfrmSelector, the packets to transform.
-
-  Return: a XfrmUserpolicyInfo cstruct.
-  """
-  # Create a user policy that specifies that all packets in the specified
-  # direction matching the selector should be encrypted.
-  return xfrm.XfrmUserpolicyInfo(
-      sel=selector,
-      lft=xfrm.NO_LIFETIME_CFG,
-      curlft=xfrm.NO_LIFETIME_CUR,
-      dir=direction,
-      action=xfrm.XFRM_POLICY_ALLOW,
-      flags=xfrm.XFRM_POLICY_LOCALOK,
-      share=xfrm.XFRM_SHARE_UNIQUE)
-
-def UserTemplate(family, spi, reqid, tun_addrs):
-  """Create an ESP policy and template.
-
-  Args:
-    spi: 32-bit SPI in host byte order
-    reqid: 32-bit ID matched against SAs
-    tun_addrs: A tuple of (local, remote) addresses for tunnel mode, or None
-      to request a transport mode SA.
-
-  Return: a tuple of XfrmUserpolicyInfo, XfrmUserTmpl
-  """
-  # For transport mode, set template source and destination are empty.
-  # For tunnel mode, explicitly specify source and destination addresses.
-  if tun_addrs is None:
-    mode = xfrm.XFRM_MODE_TRANSPORT
-    saddr = XFRM_ADDR_ANY
-    daddr = XFRM_ADDR_ANY
-  else:
-    mode = xfrm.XFRM_MODE_TUNNEL
-    saddr = xfrm.PaddedAddress(tun_addrs[0])
-    daddr = xfrm.PaddedAddress(tun_addrs[1])
-
-  # Create a template that specifies the SPI and the protocol.
-  xfrmid = xfrm.XfrmId(daddr=daddr, spi=spi, proto=IPPROTO_ESP)
-  template = xfrm.XfrmUserTmpl(
-      id=xfrmid,
-      family=family,
-      saddr=saddr,
-      reqid=reqid,
-      mode=mode,
-      share=xfrm.XFRM_SHARE_UNIQUE,
-      optional=0,  #require
-      aalgos=ALL_ALGORITHMS,
-      ealgos=ALL_ALGORITHMS,
-      calgos=ALL_ALGORITHMS)
-
-  return template
 
 
 def SetPolicySockopt(sock, family, opt_data):
@@ -131,8 +69,8 @@ def ApplySocketPolicy(sock, family, direction, spi, reqid, tun_addrs):
   selector = xfrm.EmptySelector(family)
 
   # Create an XFRM policy and template.
-  policy = UserPolicy(direction, selector)
-  template = UserTemplate(family, spi, reqid, tun_addrs)
+  policy = xfrm.UserPolicy(direction, selector)
+  template = xfrm.UserTemplate(family, spi, reqid, tun_addrs)
 
   # Set the policy and template on our socket.
   opt_data = policy.Pack() + template.Pack()
@@ -374,49 +312,3 @@ class XfrmBaseTest(multinetwork_base.MultiNetworkBaseTest):
     esp_hdr, _ = cstruct.Read(str(packet.payload), xfrm.EspHdr)
     self.assertEquals(xfrm.EspHdr((spi, seq)), esp_hdr)
     return packet
-
-  def CreateTunnel(self, direction, selector, src, dst, spi, encryption,
-                   auth_trunc, mark, output_mark):
-    """Create an XFRM Tunnel Consisting of a Policy and an SA.
-
-    Create a unidirectional XFRM tunnel, which entails one Policy and one
-    security association.
-
-    Args:
-      direction: XFRM_POLICY_IN or XFRM_POLICY_OUT
-      selector: An XfrmSelector that specifies the packets to be transformed.
-        This is only applied to the policy; the selector in the SA is always
-        empty. If the passed-in selector is None, then the tunnel is made
-        dual-stack. This requires two policies, one for IPv4 and one for IPv6.
-      src: The source address of the tunneled packets
-      dst: The destination address of the tunneled packets
-      spi: The SPI for the IPsec SA that encapsulates the tunneled packet
-      encryption: A tuple (XfrmAlgo, key), the encryption parameters.
-      auth_trunc: A tuple (XfrmAlgoAuth, key), the authentication parameters.
-      mark: An XfrmMark, the mark used for selecting packets to be tunneled, and
-        for matching the security policy and security association. None means
-        unspecified.
-      output_mark: The mark used to select the underlying network for packets
-        outbound from xfrm. None means unspecified.
-    """
-    outer_family = net_test.GetAddressFamily(net_test.GetAddressVersion(dst))
-
-    self.xfrm.AddSaInfo(
-        src, dst,
-        spi, xfrm.XFRM_MODE_TUNNEL, 0,
-        encryption,
-        auth_trunc,
-        None,
-        None,
-        mark,
-        output_mark)
-
-    if selector is None:
-      selectors = [xfrm.EmptySelector(AF_INET), xfrm.EmptySelector(AF_INET6)]
-    else:
-      selectors = [selector]
-
-    for selector in selectors:
-      policy = UserPolicy(direction, selector)
-      tmpl = UserTemplate(outer_family, spi, 0, (src, dst))
-      self.xfrm.AddPolicyInfo(policy, tmpl, mark)

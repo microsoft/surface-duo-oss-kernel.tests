@@ -598,8 +598,8 @@ class XfrmFunctionalTest(xfrm_base.XfrmBaseTest):
     mark1 = xfrm.XfrmMark(mark=0xf00, mask=xfrm_base.MARK_MASK_ALL)
     mark2 = xfrm.XfrmMark(mark=0xf00d, mask=xfrm_base.MARK_MASK_ALL)
     # Create a global policy.
-    policy = xfrm_base.UserPolicy(xfrm.XFRM_POLICY_OUT, sel)
-    tmpl = xfrm_base.UserTemplate(AF_UNSPEC, 0xfeed, 0, None)
+    policy = xfrm.UserPolicy(xfrm.XFRM_POLICY_OUT, sel)
+    tmpl = xfrm.UserTemplate(AF_UNSPEC, 0xfeed, 0, None)
     # Create the policy with the first mark.
     self.xfrm.AddPolicyInfo(policy, tmpl, mark1)
     # Create the same policy but with the second (different) mark.
@@ -617,10 +617,10 @@ class XfrmFunctionalTest(xfrm_base.XfrmBaseTest):
   def _CheckUpdatePolicy(self, version):
     """Tests that we can can update the template on a policy."""
     family = net_test.GetAddressFamily(version)
-    tmpl1 = xfrm_base.UserTemplate(family, 0xdead, 0, None)
-    tmpl2 = xfrm_base.UserTemplate(family, 0xbeef, 0, None)
+    tmpl1 = xfrm.UserTemplate(family, 0xdead, 0, None)
+    tmpl2 = xfrm.UserTemplate(family, 0xbeef, 0, None)
     sel = xfrm.EmptySelector(family)
-    policy = xfrm_base.UserPolicy(xfrm.XFRM_POLICY_OUT, sel)
+    policy = xfrm.UserPolicy(xfrm.XFRM_POLICY_OUT, sel)
     mark = xfrm.XfrmMark(mark=0xf00, mask=xfrm_base.MARK_MASK_ALL)
 
     def _CheckTemplateMatch(tmpl):
@@ -652,12 +652,12 @@ class XfrmFunctionalTest(xfrm_base.XfrmBaseTest):
   def _CheckPolicyDifferByDirection(self,version):
     """Tests that policies can differ only by direction."""
     family = net_test.GetAddressFamily(version)
-    tmpl = xfrm_base.UserTemplate(family, 0xdead, 0, None)
+    tmpl = xfrm.UserTemplate(family, 0xdead, 0, None)
     sel = xfrm.EmptySelector(family)
     mark = xfrm.XfrmMark(mark=0xf00, mask=xfrm_base.MARK_MASK_ALL)
-    policy = xfrm_base.UserPolicy(xfrm.XFRM_POLICY_OUT, sel)
+    policy = xfrm.UserPolicy(xfrm.XFRM_POLICY_OUT, sel)
     self.xfrm.AddPolicyInfo(policy, tmpl, mark)
-    policy = xfrm_base.UserPolicy(xfrm.XFRM_POLICY_IN, sel)
+    policy = xfrm.UserPolicy(xfrm.XFRM_POLICY_IN, sel)
     self.xfrm.AddPolicyInfo(policy, tmpl, mark)
 
   def testPolicyDifferByDirectionV4(self):
