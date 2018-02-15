@@ -71,6 +71,9 @@ AEAD_ALGOS = [
     xfrm.XfrmAlgoAead((xfrm.XFRM_AEAD_GCM_AES, 256+32, 16*8)),
 ]
 
+def InjectTests():
+    XfrmAlgorithmTest.InjectTests()
+
 class XfrmAlgorithmTest(xfrm_base.XfrmBaseTest):
   @classmethod
   def InjectTests(cls):
