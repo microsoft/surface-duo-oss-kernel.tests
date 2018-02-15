@@ -74,7 +74,7 @@ AEAD_ALGOS = [
 def InjectTests():
     XfrmAlgorithmTest.InjectTests()
 
-class XfrmAlgorithmTest(xfrm_base.XfrmBaseTest):
+class XfrmAlgorithmTest(xfrm_base.XfrmLazyTest):
   @classmethod
   def InjectTests(cls):
     """Inject parameterized test cases into this class.
