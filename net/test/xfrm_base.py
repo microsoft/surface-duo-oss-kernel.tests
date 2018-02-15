@@ -268,22 +268,7 @@ def DecryptPacketWithNull(packet):
 
 
 class XfrmBaseTest(multinetwork_base.MultiNetworkBaseTest):
-  """Base test class for Xfrm tests
-
-  Base test class for all XFRM-related testing. This class will clean
-  up XFRM state before and after each test.
-  """
-  def setUp(self):
-    # TODO: delete this when we're more diligent about deleting our SAs.
-    super(XfrmBaseTest, self).setUp()
-    self.xfrm = xfrm.Xfrm()
-    self.xfrm.FlushSaInfo()
-    self.xfrm.FlushPolicyInfo()
-
-  def tearDown(self):
-    super(XfrmBaseTest, self).tearDown()
-    self.xfrm.FlushSaInfo()
-    self.xfrm.FlushPolicyInfo()
+  """Base test class for all XFRM-related testing."""
 
   def _ExpectEspPacketOn(self, netid, spi, seq, length, src_addr, dst_addr):
     """Read a packet from a netid and verify its properties.
@@ -312,3 +297,18 @@ class XfrmBaseTest(multinetwork_base.MultiNetworkBaseTest):
     esp_hdr, _ = cstruct.Read(str(packet.payload), xfrm.EspHdr)
     self.assertEquals(xfrm.EspHdr((spi, seq)), esp_hdr)
     return packet
+
+
+# TODO: delete this when we're more diligent about deleting our SAs.
+class XfrmLazyTest(XfrmBaseTest):
+  """Base test class Xfrm tests that cleans XFRM state on teardown."""
+  def setUp(self):
+    super(XfrmBaseTest, self).setUp()
+    self.xfrm = xfrm.Xfrm()
+    self.xfrm.FlushSaInfo()
+    self.xfrm.FlushPolicyInfo()
+
+  def tearDown(self):
+    super(XfrmBaseTest, self).tearDown()
+    self.xfrm.FlushSaInfo()
+    self.xfrm.FlushPolicyInfo()
