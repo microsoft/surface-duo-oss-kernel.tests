@@ -53,4 +53,5 @@ if __name__ == '__main__':
   loader = unittest.defaultTestLoader
   test_suite = loader.loadTestsFromNames(test_modules)
   runner = unittest.TextTestRunner(verbosity=2)
-  sys.exit(runner.run(test_suite))
+  result = runner.run(test_suite)
+  sys.exit(not result.wasSuccessful())
