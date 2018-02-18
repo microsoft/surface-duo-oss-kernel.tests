@@ -215,6 +215,7 @@ EspHdr = cstruct.Struct("EspHdr", "!II", "spi seqnum")
 
 # Local constants.
 _DEFAULT_REPLAY_WINDOW = 4
+ALL_ALGORITHMS = 0xffffffff
 
 
 def RawAddress(addr):
@@ -229,6 +230,9 @@ def PaddedAddress(addr):
   if len(padded) < 16:
     padded += "\x00" * (16 - len(padded))
   return padded
+
+
+XFRM_ADDR_ANY = PaddedAddress("::")
 
 
 def EmptySelector(family):
@@ -247,6 +251,66 @@ def SrcDstSelector(src, dst):
   family = net_test.GetAddressFamily(srcver)
   return XfrmSelector(saddr=PaddedAddress(src), daddr=PaddedAddress(dst),
       prefixlen_s=prefixlen, prefixlen_d=prefixlen, family=family)
+
+
+def UserPolicy(direction, selector):
+  """Create an IPsec policy.
+
+  Args:
+    direction: XFRM_POLICY_IN or XFRM_POLICY_OUT
+    selector: An XfrmSelector, the packets to transform.
+
+  Return: a XfrmUserpolicyInfo cstruct.
+  """
+  # Create a user policy that specifies that all packets in the specified
+  # direction matching the selector should be encrypted.
+  return XfrmUserpolicyInfo(
+      sel=selector,
+      lft=NO_LIFETIME_CFG,
+      curlft=NO_LIFETIME_CUR,
+      dir=direction,
+      action=XFRM_POLICY_ALLOW,
+      flags=XFRM_POLICY_LOCALOK,
+      share=XFRM_SHARE_UNIQUE)
+
+
+def UserTemplate(family, spi, reqid, tun_addrs):
+  """Create an ESP policy and template.
+
+  Args:
+    spi: 32-bit SPI in host byte order
+    reqid: 32-bit ID matched against SAs
+    tun_addrs: A tuple of (local, remote) addresses for tunnel mode, or None
+      to request a transport mode SA.
+
+  Return: a tuple of XfrmUserpolicyInfo, XfrmUserTmpl
+  """
+  # For transport mode, set template source and destination are empty.
+  # For tunnel mode, explicitly specify source and destination addresses.
+  if tun_addrs is None:
+    mode = XFRM_MODE_TRANSPORT
+    saddr = XFRM_ADDR_ANY
+    daddr = XFRM_ADDR_ANY
+  else:
+    mode = XFRM_MODE_TUNNEL
+    saddr = PaddedAddress(tun_addrs[0])
+    daddr = PaddedAddress(tun_addrs[1])
+
+  # Create a template that specifies the SPI and the protocol.
+  xfrmid = XfrmId(daddr=daddr, spi=spi, proto=IPPROTO_ESP)
+  template = XfrmUserTmpl(
+      id=xfrmid,
+      family=family,
+      saddr=saddr,
+      reqid=reqid,
+      mode=mode,
+      share=XFRM_SHARE_UNIQUE,
+      optional=0,  #require
+      aalgos=ALL_ALGORITHMS,
+      ealgos=ALL_ALGORITHMS,
+      calgos=ALL_ALGORITHMS)
+
+  return template
 
 
 def ExactMatchMark(mark):
@@ -526,6 +590,45 @@ class Xfrm(netlink.NetlinkSocket):
     usersa_flush = XfrmUsersaFlush((IPSEC_PROTO_ANY,))
     flags = netlink.NLM_F_REQUEST | netlink.NLM_F_ACK
     self._SendNlRequest(XFRM_MSG_FLUSHSA, usersa_flush.Pack(), flags)
+
+  def CreateTunnel(self, direction, selector, src, dst, spi, encryption,
+                   auth_trunc, mark, output_mark):
+    """Create an XFRM Tunnel Consisting of a Policy and an SA.
+
+    Create a unidirectional XFRM tunnel, which entails one Policy and one
+    security association.
+
+    Args:
+      direction: XFRM_POLICY_IN or XFRM_POLICY_OUT
+      selector: An XfrmSelector that specifies the packets to be transformed.
+        This is only applied to the policy; the selector in the SA is always
+        empty. If the passed-in selector is None, then the tunnel is made
+        dual-stack. This requires two policies, one for IPv4 and one for IPv6.
+      src: The source address of the tunneled packets
+      dst: The destination address of the tunneled packets
+      spi: The SPI for the IPsec SA that encapsulates the tunneled packet
+      encryption: A tuple (XfrmAlgo, key), the encryption parameters.
+      auth_trunc: A tuple (XfrmAlgoAuth, key), the authentication parameters.
+      mark: An XfrmMark, the mark used for selecting packets to be tunneled, and
+        for matching the security policy and security association. None means
+        unspecified.
+      output_mark: The mark used to select the underlying network for packets
+        outbound from xfrm. None means unspecified.
+    """
+    outer_family = net_test.GetAddressFamily(net_test.GetAddressVersion(dst))
+
+    self.AddSaInfo(src, dst, spi, XFRM_MODE_TUNNEL, 0, encryption, auth_trunc,
+                   None, None, mark, output_mark)
+
+    if selector is None:
+      selectors = [EmptySelector(AF_INET), EmptySelector(AF_INET6)]
+    else:
+      selectors = [selector]
+
+    for selector in selectors:
+      policy = UserPolicy(direction, selector)
+      tmpl = UserTemplate(outer_family, spi, 0, (src, dst))
+      self.AddPolicyInfo(policy, tmpl, mark)
 
 
 if __name__ == "__main__":
