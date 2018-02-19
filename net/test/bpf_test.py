@@ -19,6 +19,8 @@ import errno
 import os
 import socket
 import struct
+import subprocess
+import tempfile
 import unittest
 
 from bpf import *  # pylint: disable=wildcard-import
@@ -281,15 +283,22 @@ class BpfCgroupTest(net_test.NetworkTest):
 
   @classmethod
   def setUpClass(cls):
-    if not os.path.isdir("/tmp"):
-      os.mkdir('/tmp')
-    os.system('mount -t cgroup2 cg_bpf /tmp')
-    cls._cg_fd = os.open('/tmp', os.O_DIRECTORY | os.O_RDONLY)
+    cls._cg_dir = tempfile.mkdtemp(prefix="cg_bpf-")
+    cmd = "mount -t cgroup2 cg_bpf %s" % cls._cg_dir
+    try:
+      subprocess.check_call(cmd.split())
+    except subprocess.CalledProcessError:
+      # If an exception is thrown in setUpClass, the test fails and
+      # tearDownClass is not called.
+      os.rmdir(cls._cg_dir)
+      raise
+    cls._cg_fd = os.open(cls._cg_dir, os.O_DIRECTORY | os.O_RDONLY)
 
   @classmethod
   def tearDownClass(cls):
     os.close(cls._cg_fd)
-    os.system('umount cg_bpf')
+    subprocess.call(('umount %s' % cls._cg_dir).split())
+    os.rmdir(cls._cg_dir)
 
   def setUp(self):
     self.prog_fd = -1
