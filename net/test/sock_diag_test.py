@@ -36,6 +36,7 @@ NUM_SOCKETS = 30
 NO_BYTECODE = ""
 HAVE_SO_COOKIE_SUPPORT = net_test.LINUX_VERSION >= (4, 9, 0)
 
+IPPROTO_SCTP = 132
 
 def HaveUdpDiag():
   # There is no way to tell whether a dump succeeded: if the appropriate handler
@@ -50,8 +51,18 @@ def HaveUdpDiag():
   s.close()
   return have_udp_diag
 
+def HaveSctp():
+  if net_test.LINUX_VERSION < (4, 7, 0):
+    return False
+  try:
+    s = socket(AF_INET, SOCK_STREAM, IPPROTO_SCTP)
+    s.close()
+    return True
+  except IOError:
+    return False
 
 HAVE_UDP_DIAG = HaveUdpDiag()
+HAVE_SCTP = HaveSctp()
 
 
 class SockDiagBaseTest(multinetwork_base.MultiNetworkBaseTest):
@@ -899,8 +910,6 @@ class SockDiagMarkTest(tcp_test.TcpBaseTest, SockDiagBaseTest):
         d545cac net: inet: diag: expose the socket mark to privileged processes.
   """
 
-  IPPROTO_SCTP = 132
-
   def FilterEstablishedSockets(self, mark, mask):
     instructions = [(sock_diag.INET_DIAG_BC_MARK_COND, 1, 2, (mark, mask))]
     bytecode = self.sock_diag.PackBytecode(instructions)
@@ -1023,14 +1032,13 @@ class SockDiagMarkTest(tcp_test.TcpBaseTest, SockDiagBaseTest):
         s.close()
 
       # Basic test for SCTP. sctp_diag was only added in 4.7.
-      if net_test.LINUX_VERSION >= (4, 7, 0):
-        s = socket(family, SOCK_STREAM, self.IPPROTO_SCTP)
+      if HAVE_SCTP:
+        s = socket(family, SOCK_STREAM, IPPROTO_SCTP)
         s.bind((addr, 0))
         s.listen(1)
         mark = self.SetRandomMark(s)
         self.assertSocketMarkIs(s, mark)
-        sockets = self.sock_diag.DumpAllInetSockets(self.IPPROTO_SCTP,
-                                                    NO_BYTECODE)
+        sockets = self.sock_diag.DumpAllInetSockets(IPPROTO_SCTP, NO_BYTECODE)
         self.assertEqual(1, len(sockets))
         self.assertEqual(mark, sockets[0][1].get("INET_DIAG_MARK", None))
         s.close()
