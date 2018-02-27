@@ -630,6 +630,15 @@ class Xfrm(netlink.NetlinkSocket):
       tmpl = UserTemplate(outer_family, spi, 0, (src, dst))
       self.AddPolicyInfo(policy, tmpl, mark)
 
+  def DeleteTunnel(self, direction, selector, dst, spi, mark):
+    self.DeleteSaInfo(dst, spi, IPPROTO_ESP, ExactMatchMark(mark))
+    if selector is None:
+      selectors = [EmptySelector(AF_INET), EmptySelector(AF_INET6)]
+    else:
+      selectors = [selector]
+    for selector in selectors:
+      self.DeletePolicyInfo(selector, direction, ExactMatchMark(mark))
+
 
 if __name__ == "__main__":
   x = Xfrm()
