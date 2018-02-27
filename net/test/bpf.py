@@ -15,15 +15,20 @@
 # limitations under the License.
 
 import ctypes
+import os
 
 import csocket
 import cstruct
 import net_test
 import socket
 
-# TODO: figure out how to make this arch-dependent if we run these tests
-# on non-X86
-__NR_bpf = 321
+# __NR_bpf syscall numbers for various architectures.
+# TODO: is there a better way of doing this?
+__NR_bpf = {
+    "aarch64": 280,
+    "armv8l": 386,
+    "x86_64": 321}[os.uname()[4]]
+
 LOG_LEVEL = 1
 LOG_SIZE = 65536
 
@@ -159,7 +164,7 @@ HAVE_EBPF_SUPPORT = net_test.LINUX_VERSION >= (4, 4, 0)
 
 # BPF program syscalls
 def BpfSyscall(op, attr):
-  ret = libc.syscall(__NR_bpf, op, attr.CPointer(), len(attr))
+  ret = libc.syscall(__NR_bpf, op, csocket.VoidPointer(attr), len(attr))
   csocket.MaybeRaiseSocketError(ret)
   return ret
 
@@ -214,9 +219,9 @@ def BpfProgLoad(prog_type, instructions):
 
 # Attach a socket eBPF filter to a target socket
 def BpfProgAttachSocket(sock_fd, prog_fd):
-  prog_ptr = ctypes.c_uint32(prog_fd)
+  uint_fd = ctypes.c_uint32(prog_fd)
   ret = libc.setsockopt(sock_fd, socket.SOL_SOCKET, SO_ATTACH_BPF,
-                        ctypes.addressof(prog_ptr), ctypes.sizeof(prog_ptr))
+                        ctypes.pointer(uint_fd), ctypes.sizeof(uint_fd))
   csocket.MaybeRaiseSocketError(ret)
 
 # Attach a eBPF filter to a cgroup
