@@ -194,6 +194,27 @@ class BpfTest(net_test.NetworkTest):
         self.assertEquals(value, LookupMap(self.map_fd, key).value)
         count += 1
 
+  # TODO: move this check to the begining of the class insdead.
+  @unittest.skipUnless(HAVE_EBPF_ACCOUNTING,
+                       "BPF helper function is not fully supported")
+  def testRdOnlyMap(self):
+    self.map_fd = CreateMap(BPF_MAP_TYPE_HASH, KEY_SIZE, VALUE_SIZE,
+                            TOTAL_ENTRIES, map_flags=BPF_F_RDONLY)
+    value = 1024
+    key = 1
+    self.assertRaisesErrno(errno.EPERM, UpdateMap, self.map_fd, key, value)
+    self.assertRaisesErrno(errno.ENOENT, LookupMap, self.map_fd, key)
+
+  @unittest.skipUnless(HAVE_EBPF_ACCOUNTING,
+                       "BPF helper function is not fully supported")
+  def testWrOnlyMap(self):
+    self.map_fd = CreateMap(BPF_MAP_TYPE_HASH, KEY_SIZE, VALUE_SIZE,
+                            TOTAL_ENTRIES, map_flags=BPF_F_WRONLY)
+    value = 1024
+    key = 1
+    UpdateMap(self.map_fd, key, value)
+    self.assertRaisesErrno(errno.EPERM, LookupMap, self.map_fd, key)
+
   def testProgLoad(self):
     # Move skb to BPF_REG_6 for further usage
     instructions = [
