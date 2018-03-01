@@ -144,11 +144,14 @@ BPF_FUNC_map_delete_elem = 3
 BPF_FUNC_get_socket_cookie = 46
 BPF_FUNC_get_socket_uid = 47
 
+BPF_F_RDONLY = 1 << 3
+BPF_F_WRONLY = 1 << 4
+
 #  These object below belongs to the same kernel union and the types below
 #  (e.g., bpf_attr_create) aren't kernel struct names but just different
 #  variants of the union.
-BpfAttrCreate = cstruct.Struct("bpf_attr_create", "=IIII",
-                               "map_type key_size value_size max_entries")
+BpfAttrCreate = cstruct.Struct("bpf_attr_create", "=IIIII",
+                               "map_type key_size value_size max_entries, map_flags")
 BpfAttrOps = cstruct.Struct("bpf_attr_ops", "=QQQQ",
                             "map_fd key_ptr value_ptr flags")
 BpfAttrProgLoad = cstruct.Struct(
@@ -168,8 +171,8 @@ def BpfSyscall(op, attr):
   csocket.MaybeRaiseSocketError(ret)
   return ret
 
-def CreateMap(map_type, key_size, value_size, max_entries):
-  attr = BpfAttrCreate((map_type, key_size, value_size, max_entries))
+def CreateMap(map_type, key_size, value_size, max_entries, map_flags=0):
+  attr = BpfAttrCreate((map_type, key_size, value_size, max_entries, map_flags))
   return BpfSyscall(BPF_MAP_CREATE, attr)
 
 
