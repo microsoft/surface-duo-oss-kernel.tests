@@ -252,6 +252,12 @@ class XfrmAlgorithmTest(xfrm_base.XfrmLazyTest):
     sock_right.setsockopt(SOL_SOCKET, SO_REUSEADDR, 1)
     self.SelectInterface(sock_right, netid, "mark")
 
+    # For UDP, set SO_LINGER to 0, to prevent TCP sockets from hanging around
+    # in a TIME_WAIT state.
+    if params["proto"] == SOCK_STREAM:
+        net_test.DisableFinWait(sock_left)
+        net_test.DisableFinWait(sock_right)
+
     # Apply the left outbound socket policy.
     xfrm_base.ApplySocketPolicy(sock_left, family, xfrm.XFRM_POLICY_OUT,
                                 spi_right, req_ids[0], None)
@@ -320,8 +326,6 @@ class XfrmAlgorithmTest(xfrm_base.XfrmLazyTest):
       sock_left.send("hello request")
       data = sock_left.recv(2048)
       self.assertEquals("hello response", data)
-      if params["proto"] == SOCK_STREAM:
-        sock_left.shutdown(SHUT_RD)
       sock_left.close()
       server.join()
     if server_error:
