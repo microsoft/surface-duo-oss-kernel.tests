@@ -106,6 +106,13 @@ class XfrmTunnelTest(xfrm_base.XfrmLazyTest):
 
 @unittest.skipUnless(net_test.LINUX_VERSION >= (3, 18, 0), "VTI Unsupported")
 class XfrmAddDeleteVtiTest(xfrm_base.XfrmBaseTest):
+  def verifyVtiInfoData(self, vti_info_data, version, local_addr, remote_addr, ikey, okey):
+    self.assertEquals(vti_info_data["IFLA_VTI_IKEY"], ikey)
+    self.assertEquals(vti_info_data["IFLA_VTI_OKEY"], okey)
+
+    family = AF_INET if version == 4 else AF_INET6
+    self.assertEquals(inet_ntop(family, vti_info_data["IFLA_VTI_LOCAL"]), local_addr)
+    self.assertEquals(inet_ntop(family, vti_info_data["IFLA_VTI_REMOTE"]), remote_addr)
 
   def testAddVti(self):
     """Test the creation of a Virtual Tunnel Interface."""
@@ -118,6 +125,25 @@ class XfrmAddDeleteVtiTest(xfrm_base.XfrmBaseTest):
           remote_addr=_GetRemoteOuterAddress(version),
           o_key=_TEST_OKEY,
           i_key=_TEST_IKEY)
+      self.verifyVtiInfoData(self.iproute.GetVtiInfoData(_VTI_IFNAME),
+                             version, local_addr, _GetRemoteOuterAddress(version),
+                             _TEST_IKEY, _TEST_OKEY)
+
+      new_remote_addr = {4: net_test.IPV4_ADDR2, 6: net_test.IPV6_ADDR2}
+      new_okey = _TEST_OKEY + _VTI_NETID
+      new_ikey = _TEST_IKEY + _VTI_NETID
+      self.iproute.CreateVirtualTunnelInterface(
+          dev_name=_VTI_IFNAME,
+          local_addr=local_addr,
+          remote_addr=new_remote_addr[version],
+          o_key=new_okey,
+          i_key=new_ikey,
+          is_update=True)
+
+      self.verifyVtiInfoData(self.iproute.GetVtiInfoData(_VTI_IFNAME),
+                             version, local_addr, new_remote_addr[version],
+                             new_ikey, new_okey)
+
       if_index = self.iproute.GetIfIndex(_VTI_IFNAME)
 
       # Validate that the netlink interface matches the ioctl interface.
