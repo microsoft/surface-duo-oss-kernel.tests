@@ -195,13 +195,20 @@ def LookupMap(map_fd, key):
 
 
 def GetNextKey(map_fd, key):
-  c_key = ctypes.c_uint32(key)
+  if key is not None:
+    c_key = ctypes.c_uint32(key)
+    c_next_key = ctypes.c_uint32(0)
+    key_ptr = ctypes.addressof(c_key)
+  else:
+    key_ptr = 0;
   c_next_key = ctypes.c_uint32(0)
   attr = BpfAttrOps(
-      (map_fd, ctypes.addressof(c_key), ctypes.addressof(c_next_key), 0))
+      (map_fd, key_ptr, ctypes.addressof(c_next_key), 0))
   BpfSyscall(BPF_MAP_GET_NEXT_KEY, attr)
   return c_next_key
 
+def GetFirstKey(map_fd):
+  return GetNextKey(map_fd, None)
 
 def DeleteMap(map_fd, key):
   c_key = ctypes.c_uint32(key)
