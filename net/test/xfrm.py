@@ -610,15 +610,17 @@ class Xfrm(netlink.NetlinkSocket):
       encryption: A tuple (XfrmAlgo, key), the encryption parameters.
       auth_trunc: A tuple (XfrmAlgoAuth, key), the authentication parameters.
       mark: An XfrmMark, the mark used for selecting packets to be tunneled, and
-        for matching the security policy and security association. None means
-        unspecified.
+        for matching the security policy. None means unspecified.
       output_mark: The mark used to select the underlying network for packets
         outbound from xfrm. None means unspecified.
     """
     outer_family = net_test.GetAddressFamily(net_test.GetAddressVersion(dst))
 
+    # Device code does not use mark; during AllocSpi, the mark is unset, and
+    # UPDSA does not update marks at this time. Actual use case will have no
+    # mark set. Test this use case.
     self.AddSaInfo(src, dst, spi, XFRM_MODE_TUNNEL, 0, encryption, auth_trunc,
-                   None, None, mark, output_mark)
+                   None, None, None, output_mark)
 
     if selector is None:
       selectors = [EmptySelector(AF_INET), EmptySelector(AF_INET6)]
