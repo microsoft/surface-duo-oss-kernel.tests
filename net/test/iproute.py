@@ -208,13 +208,17 @@ IFLA_PAD = 42
 IFLA_XDP = 43
 IFLA_EVENT = 44
 
-# linux/include/uapi/if_link.h
+# include/uapi/linux/if_link.h
 IFLA_INFO_UNSPEC = 0
 IFLA_INFO_KIND = 1
 IFLA_INFO_DATA = 2
 IFLA_INFO_XSTATS = 3
 
-# linux/if_tunnel.h
+IFLA_XFRM_UNSPEC = 0
+IFLA_XFRM_LINK = 1
+IFLA_XFRM_IF_ID = 2
+
+# include/uapi/linux/if_tunnel.h
 IFLA_VTI_UNSPEC = 0
 IFLA_VTI_LINK = 1
 IFLA_VTI_IKEY = 2
@@ -680,7 +684,7 @@ class IPRoute(netlink.NetlinkSocket):
     attrs = self._ParseAttributes(RTM_NEWLINK, IfinfoMsg, attrs)
     return attrs["IFLA_STATS64"]
 
-  def GetVtiInfoData(self, dev_name):
+  def GetIfinfoData(self, dev_name):
     """Returns an IFLA_INFO_DATA dict object for the specified interface."""
     _, attrs = self.GetIfinfo(dev_name)
     attrs = self._ParseAttributes(RTM_NEWLINK, IfinfoMsg, attrs)
@@ -742,6 +746,22 @@ class IPRoute(netlink.NetlinkSocket):
     if not is_update:
       flags |= netlink.NLM_F_EXCL
     return self._SendNlRequest(RTM_NEWLINK, ifinfo, flags)
+
+  def CreateXfrmInterface(self, dev_name, xfrm_if_id, underlying_ifindex):
+    """Creates an XFRM interface with the specified parameters."""
+    # The netlink attribute structure is essentially identical to the one
+    # for VTI above (q.v).
+    ifdata = self._NlAttrU32(IFLA_XFRM_LINK, underlying_ifindex)
+    ifdata += self._NlAttrU32(IFLA_XFRM_IF_ID, xfrm_if_id)
+
+    linkinfo = self._NlAttrStr(IFLA_INFO_KIND, "xfrm")
+    linkinfo += self._NlAttr(IFLA_INFO_DATA, ifdata)
+
+    msg = IfinfoMsg().Pack()
+    msg += self._NlAttrStr(IFLA_IFNAME, dev_name)
+    msg += self._NlAttr(IFLA_LINKINFO, linkinfo)
+
+    return self._SendNlRequest(RTM_NEWLINK, msg)
 
 
 if __name__ == "__main__":
