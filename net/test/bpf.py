@@ -27,7 +27,9 @@ import socket
 __NR_bpf = {
     "aarch64": 280,
     "armv8l": 386,
-    "x86_64": 321}[os.uname()[4]]
+    "i686" : 357,
+    "x86_64": 321,
+}[os.uname()[4]]
 
 LOG_LEVEL = 1
 LOG_SIZE = 65536
