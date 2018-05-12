@@ -33,6 +33,7 @@ HAVE_EBPF_ACCOUNTING = net_test.LINUX_VERSION >= (4, 9, 0)
 KEY_SIZE = 8
 VALUE_SIZE = 4
 TOTAL_ENTRIES = 20
+TEST_UID = 54321
 # Offset to store the map key in stack register REG10
 key_offset = -8
 # Offset to store the map value in stack register REG10
@@ -300,7 +301,7 @@ class BpfTest(net_test.NetworkTest):
                      + INS_SK_FILTER_ACCEPT)
     self.prog_fd = BpfProgLoad(BPF_PROG_TYPE_SOCKET_FILTER, instructions)
     packet_count = 10
-    uid = 12345
+    uid = TEST_UID
     with net_test.RunAsUid(uid):
       self.assertRaisesErrno(errno.ENOENT, LookupMap, self.map_fd, uid)
       SocketUDPLoopBack(packet_count, 4, self.prog_fd)
@@ -385,13 +386,15 @@ class BpfCgroupTest(net_test.NetworkTest):
                      + INS_CGROUP_ACCEPT + INS_PACK_COUNT_UPDATE + INS_CGROUP_ACCEPT)
     self.prog_fd = BpfProgLoad(BPF_PROG_TYPE_CGROUP_SKB, instructions)
     BpfProgAttach(self.prog_fd, self._cg_fd, BPF_CGROUP_INET_INGRESS)
-    uid = os.getuid()
     packet_count = 20
-    SocketUDPLoopBack(packet_count, 4, None)
-    self.assertEquals(packet_count, LookupMap(self.map_fd, uid).value)
-    DeleteMap(self.map_fd, uid);
-    SocketUDPLoopBack(packet_count, 6, None)
-    self.assertEquals(packet_count, LookupMap(self.map_fd, uid).value)
+    uid = TEST_UID
+    with net_test.RunAsUid(uid):
+      self.assertRaisesErrno(errno.ENOENT, LookupMap, self.map_fd, uid)
+      SocketUDPLoopBack(packet_count, 4, None)
+      self.assertEquals(packet_count, LookupMap(self.map_fd, uid).value)
+      DeleteMap(self.map_fd, uid);
+      SocketUDPLoopBack(packet_count, 6, None)
+      self.assertEquals(packet_count, LookupMap(self.map_fd, uid).value)
     BpfProgDetach(self._cg_fd, BPF_CGROUP_INET_INGRESS)
 
 if __name__ == "__main__":
