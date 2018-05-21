@@ -85,6 +85,8 @@ XFRMA_ADDRESS_FILTER = 26
 XFRMA_PAD = 27
 XFRMA_OFFLOAD_DEV = 28
 XFRMA_OUTPUT_MARK = 29
+XFRMA_INPUT_MARK = 30
+XFRMA_IF_ID = 31
 
 # Other netlink constants. See include/uapi/linux/xfrm.h.
 
@@ -126,6 +128,7 @@ XFRM_AALG_HMAC_SHA1 = "hmac(sha1)"
 XFRM_AALG_HMAC_SHA256 = "hmac(sha256)"
 XFRM_AALG_HMAC_SHA384 = "hmac(sha384)"
 XFRM_AALG_HMAC_SHA512 = "hmac(sha512)"
+XFRM_AEAD_GCM_AES = "rfc4106(gcm(aes))"
 
 # Data structure formats.
 # These aren't constants, they're classes. So, pylint: disable=invalid-name
@@ -183,7 +186,7 @@ XfrmUserpolicyInfo = cstruct.Struct(
     [XfrmSelector, XfrmLifetimeCfg, XfrmLifetimeCur])
 
 XfrmUserpolicyId = cstruct.Struct(
-        "XfrmUserpolicyId", "=SIB", "sel index dir", [XfrmSelector])
+        "XfrmUserpolicyId", "=SIBxxx", "sel index dir", [XfrmSelector])
 
 XfrmUsersaFlush = cstruct.Struct("XfrmUsersaFlush", "=B", "proto")
 
@@ -214,6 +217,7 @@ EspHdr = cstruct.Struct("EspHdr", "!II", "spi seqnum")
 
 # Local constants.
 _DEFAULT_REPLAY_WINDOW = 4
+ALL_ALGORITHMS = 0xffffffff
 
 
 def RawAddress(addr):
@@ -228,6 +232,9 @@ def PaddedAddress(addr):
   if len(padded) < 16:
     padded += "\x00" * (16 - len(padded))
   return padded
+
+
+XFRM_ADDR_ANY = PaddedAddress("::")
 
 
 def EmptySelector(family):
@@ -246,6 +253,66 @@ def SrcDstSelector(src, dst):
   family = net_test.GetAddressFamily(srcver)
   return XfrmSelector(saddr=PaddedAddress(src), daddr=PaddedAddress(dst),
       prefixlen_s=prefixlen, prefixlen_d=prefixlen, family=family)
+
+
+def UserPolicy(direction, selector):
+  """Create an IPsec policy.
+
+  Args:
+    direction: XFRM_POLICY_IN or XFRM_POLICY_OUT
+    selector: An XfrmSelector, the packets to transform.
+
+  Return: a XfrmUserpolicyInfo cstruct.
+  """
+  # Create a user policy that specifies that all packets in the specified
+  # direction matching the selector should be encrypted.
+  return XfrmUserpolicyInfo(
+      sel=selector,
+      lft=NO_LIFETIME_CFG,
+      curlft=NO_LIFETIME_CUR,
+      dir=direction,
+      action=XFRM_POLICY_ALLOW,
+      flags=XFRM_POLICY_LOCALOK,
+      share=XFRM_SHARE_UNIQUE)
+
+
+def UserTemplate(family, spi, reqid, tun_addrs):
+  """Create an ESP policy and template.
+
+  Args:
+    spi: 32-bit SPI in host byte order
+    reqid: 32-bit ID matched against SAs
+    tun_addrs: A tuple of (local, remote) addresses for tunnel mode, or None
+      to request a transport mode SA.
+
+  Return: a tuple of XfrmUserpolicyInfo, XfrmUserTmpl
+  """
+  # For transport mode, set template source and destination are empty.
+  # For tunnel mode, explicitly specify source and destination addresses.
+  if tun_addrs is None:
+    mode = XFRM_MODE_TRANSPORT
+    saddr = XFRM_ADDR_ANY
+    daddr = XFRM_ADDR_ANY
+  else:
+    mode = XFRM_MODE_TUNNEL
+    saddr = PaddedAddress(tun_addrs[0])
+    daddr = PaddedAddress(tun_addrs[1])
+
+  # Create a template that specifies the SPI and the protocol.
+  xfrmid = XfrmId(daddr=daddr, spi=spi, proto=IPPROTO_ESP)
+  template = XfrmUserTmpl(
+      id=xfrmid,
+      family=family,
+      saddr=saddr,
+      reqid=reqid,
+      mode=mode,
+      share=XFRM_SHARE_UNIQUE,
+      optional=0,  #require
+      aalgos=ALL_ALGORITHMS,
+      ealgos=ALL_ALGORITHMS,
+      calgos=ALL_ALGORITHMS)
+
+  return template
 
 
 def ExactMatchMark(mark):
@@ -304,37 +371,67 @@ class Xfrm(netlink.NetlinkSocket):
       data = struct.unpack("=I", nla_data)[0]
     elif name == "XFRMA_TMPL":
       data = cstruct.Read(nla_data, XfrmUserTmpl)[0]
+    elif name == "XFRMA_IF_ID":
+      data = struct.unpack("=I", nla_data)[0]
     else:
       data = nla_data
 
     return name, data
 
-  def AddPolicyInfo(self, policy, tmpl, mark):
+  def _UpdatePolicyInfo(self, msg, policy, tmpl, mark, xfrm_if_id):
+    """Send a policy to the Security Policy Database"""
+    nlattrs = []
+    if tmpl is not None:
+      nlattrs.append((XFRMA_TMPL, tmpl))
+    if mark is not None:
+      nlattrs.append((XFRMA_MARK, mark))
+    if xfrm_if_id is not None:
+      nlattrs.append((XFRMA_IF_ID, struct.pack("=I", xfrm_if_id)))
+    self.SendXfrmNlRequest(msg, policy, nlattrs)
+
+  def AddPolicyInfo(self, policy, tmpl, mark, xfrm_if_id=None):
     """Add a new policy to the Security Policy Database
 
-    Args:
-      policy: an unpacked XfrmUserpolicyInfo cstruct
-      tmpl: an unpacked XfrmUserTmpl cstruct
-      mark: an unpacked XfrmMark cstruct
-    """
-    nlattrs = []
-    if tmpl:
-      nlattrs.append((XFRMA_TMPL, tmpl))
-    if mark:
-      nlattrs.append((XFRMA_MARK, mark))
-    self.SendXfrmNlRequest(XFRM_MSG_NEWPOLICY, policy, nlattrs)
+    If the policy exists, then return an error (EEXIST).
 
-  def DeletePolicyInfo(self, selector, direction):
+    Args:
+      policy: an unpacked XfrmUserpolicyInfo
+      tmpl: an unpacked XfrmUserTmpl
+      mark: an unpacked XfrmMark
+      xfrm_if_id: the XFRM interface ID as an integer, or None
+    """
+    self._UpdatePolicyInfo(XFRM_MSG_NEWPOLICY, policy, tmpl, mark, xfrm_if_id)
+
+  def UpdatePolicyInfo(self, policy, tmpl, mark, xfrm_if_id):
+    """Update an existing policy in the Security Policy Database
+
+    If the policy does not exist, then create it; otherwise, update the
+    existing policy record.
+
+    Args:
+      policy: an unpacked XfrmUserpolicyInfo
+      tmpl: an unpacked XfrmUserTmpl to update
+      mark: an unpacked XfrmMark to match the existing policy or None
+      xfrm_if_id: an XFRM interface ID or None
+    """
+    self._UpdatePolicyInfo(XFRM_MSG_UPDPOLICY, policy, tmpl, mark, xfrm_if_id)
+
+  def DeletePolicyInfo(self, selector, direction, mark, xfrm_if_id=None):
     """Delete a policy from the Security Policy Database
 
     Args:
-      saddr: source address of the selector
-      daddr: destination address of the selector
-      family: the address family of the selector
+      selector: an XfrmSelector matching the policy to delete
       direction: policy direction
+      mark: an unpacked XfrmMark to match the policy or None
     """
+    nlattrs = []
+    if mark is not None:
+      nlattrs.append((XFRMA_MARK, mark))
+    if xfrm_if_id is not None:
+      nlattrs.append((XFRMA_IF_ID, struct.pack("=I", xfrm_if_id)))
     self.SendXfrmNlRequest(XFRM_MSG_DELPOLICY,
-                           XfrmUserpolicyId(sel=selector, dir=direction))
+                           XfrmUserpolicyId(sel=selector, dir=direction),
+                           nlattrs)
 
   # TODO: this function really needs to be in netlink.py
   def SendXfrmNlRequest(self, msg_type, req, nlattrs=None,
@@ -350,14 +447,38 @@ class Xfrm(netlink.NetlinkSocket):
           provided, an ACK response is assumed.
     """
     msg = req.Pack()
-    if not nlattrs:
+    if nlattrs is None:
       nlattrs = []
     for attr_type, attr_msg in nlattrs:
-      msg += self._NlAttr(attr_type, attr_msg.Pack())
+      # TODO: find a better way to deal with the fact that many XFRM messages
+      # use nlattrs that aren't cstructs.
+      #
+      # This code allows callers to pass in either something that has a Pack()
+      # method or a packed netlink attr, but not other types of attributes.
+      # Alternatives include:
+      #
+      # 1. Require callers to marshal netlink attributes themselves and call
+      #    _SendNlRequest directly. Delete this method.
+      # 2. Rename this function to _SendXfrmNlRequestCstructOnly (or other name
+      #    that makes it clear that this only takes cstructs). Switch callers
+      #    that need non-cstruct elements to calling _SendNlRequest directly.
+      # 3. Make this function somehow automatically detect what to do for
+      #    all types of XFRM attributes today and in the future. This may be
+      #    feasible because all XFRM attributes today occupy the same number
+      #    space, but what about nested attributes? It is unlikley feasible via
+      #    things like "if isinstance(attr_msg, str): ...", because that would
+      #    not be able to determine the right size or byte order for non-struct
+      #    types such as int.
+      # 4. Define fictitious cstructs which have no correspondence to actual
+      #    kernel structs such as the following to represent a raw integer.
+      #    XfrmAttrOutputMark = cstruct.Struct("=I", mark)
+      if hasattr(attr_msg, "Pack"):
+        attr_msg = attr_msg.Pack()
+      msg += self._NlAttr(attr_type, attr_msg)
     return self._SendNlRequest(msg_type, msg, flags)
 
-  def AddSaInfo(self, src, dst, spi, mode, reqid, encryption, auth_trunc, encap,
-                mark, output_mark):
+  def AddSaInfo(self, src, dst, spi, mode, reqid, encryption, auth_trunc, aead,
+                encap, mark, output_mark, is_update=False, xfrm_if_id=None):
     """Adds an IPsec security association.
 
     Args:
@@ -369,10 +490,14 @@ class Xfrm(netlink.NetlinkSocket):
       reqid: A request ID. Can be used in policies to match the SA.
       encryption: A tuple of an XfrmAlgo and raw key bytes, or None.
       auth_trunc: A tuple of an XfrmAlgoAuth and raw key bytes, or None.
+      aead: A tuple of an XfrmAlgoAead and raw key bytes, or None.
       encap: An XfrmEncapTmpl structure, or None.
       mark: A mark match specifier, such as returned by ExactMatchMark(), or
         None for an SA that matches all possible marks.
       output_mark: An integer, the output mark. 0 means unset.
+      is_update: If true, update an existing SA otherwise create a new SA. For
+        compatibility reasons, this value defaults to False.
+      xfrm_if_id: The XFRM interface ID, or None.
     """
     proto = IPPROTO_ESP
     xfrm_id = XfrmId((PaddedAddress(dst), spi, proto))
@@ -387,6 +512,10 @@ class Xfrm(netlink.NetlinkSocket):
       auth, key = auth_trunc
       nlattrs += self._NlAttr(XFRMA_ALG_AUTH_TRUNC, auth.Pack() + key)
 
+    if aead is not None:
+      aead_alg, key = aead
+      nlattrs += self._NlAttr(XFRMA_ALG_AEAD, aead_alg.Pack() + key)
+
     # if a user provides either mark or mask, then we send the mark attribute
     if mark is not None:
       nlattrs += self._NlAttr(XFRMA_MARK, mark.Pack())
@@ -394,6 +523,8 @@ class Xfrm(netlink.NetlinkSocket):
       nlattrs += self._NlAttr(XFRMA_ENCAP, encap.Pack())
     if output_mark is not None:
       nlattrs += self._NlAttrU32(XFRMA_OUTPUT_MARK, output_mark)
+    if xfrm_if_id is not None:
+      nlattrs += self._NlAttrU32(XFRMA_IF_ID, xfrm_if_id)
 
     # The kernel ignores these on input, so make them empty.
     cur = XfrmLifetimeCur()
@@ -422,26 +553,48 @@ class Xfrm(netlink.NetlinkSocket):
                          cur, stats, seq, reqid, family, mode, replay, flags))
     msg = sa.Pack() + nlattrs
     flags = netlink.NLM_F_REQUEST | netlink.NLM_F_ACK
-    self._SendNlRequest(XFRM_MSG_NEWSA, msg, flags)
+    nl_msg_type = XFRM_MSG_UPDSA if is_update else XFRM_MSG_NEWSA
+    self._SendNlRequest(nl_msg_type, msg, flags)
 
-  def DeleteSaInfo(self, daddr, spi, proto):
-    # TODO: deletes take a mark as well.
-    family = AF_INET6 if ":" in daddr else AF_INET
-    usersa_id = XfrmUsersaId((PaddedAddress(daddr), spi, family, proto))
-    flags = netlink.NLM_F_REQUEST | netlink.NLM_F_ACK
-    self._SendNlRequest(XFRM_MSG_DELSA, usersa_id.Pack(), flags)
+  def DeleteSaInfo(self, dst, spi, proto, mark=None, xfrm_if_id=None):
+    """Delete an SA from the SAD
+
+    Args:
+      dst: A string, the destination IP address. Forms part of the XFRM ID, and
+        must match the destination address of the packets sent by this SA.
+      spi: An integer, the SPI.
+      proto: The protocol DB of the SA, such as IPPROTO_ESP.
+      mark: A mark match specifier, such as returned by ExactMatchMark(), or
+        None for an SA without a Mark attribute.
+    """
+    family = AF_INET6 if ":" in dst else AF_INET
+    usersa_id = XfrmUsersaId((PaddedAddress(dst), spi, family, proto))
+    nlattrs = []
+    if mark is not None:
+      nlattrs.append((XFRMA_MARK, mark))
+    if xfrm_if_id is not None:
+      nlattrs.append((XFRMA_IF_ID, struct.pack("=I", xfrm_if_id)))
+    self.SendXfrmNlRequest(XFRM_MSG_DELSA, usersa_id, nlattrs)
 
   def AllocSpi(self, dst, proto, min_spi, max_spi):
     """Allocate (reserve) an SPI.
 
     This sends an XFRM_MSG_ALLOCSPI message and returns the resulting
     XfrmUsersaInfo struct.
+
+    Args:
+      dst: A string, the destination IP address. Forms part of the XFRM ID, and
+        must match the destination address of the packets sent by this SA.
+      proto: the protocol DB of the SA, such as IPPROTO_ESP.
+      min_spi: The minimum value of the acceptable SPI range (inclusive).
+      max_spi: The maximum value of the acceptable SPI range (inclusive).
     """
     spi = XfrmUserSpiInfo("\x00" * len(XfrmUserSpiInfo))
     spi.min = min_spi
     spi.max = max_spi
     spi.info.id.daddr = PaddedAddress(dst)
     spi.info.id.proto = proto
+    spi.info.family = AF_INET6 if ":" in dst else AF_INET
 
     msg = spi.Pack()
     flags = netlink.NLM_F_REQUEST
@@ -475,6 +628,60 @@ class Xfrm(netlink.NetlinkSocket):
     usersa_flush = XfrmUsersaFlush((IPSEC_PROTO_ANY,))
     flags = netlink.NLM_F_REQUEST | netlink.NLM_F_ACK
     self._SendNlRequest(XFRM_MSG_FLUSHSA, usersa_flush.Pack(), flags)
+
+  def CreateTunnel(self, direction, selector, src, dst, spi, encryption,
+                   auth_trunc, mark, output_mark, xfrm_if_id):
+    """Create an XFRM Tunnel Consisting of a Policy and an SA.
+
+    Create a unidirectional XFRM tunnel, which entails one Policy and one
+    security association.
+
+    Args:
+      direction: XFRM_POLICY_IN or XFRM_POLICY_OUT
+      selector: An XfrmSelector that specifies the packets to be transformed.
+        This is only applied to the policy; the selector in the SA is always
+        empty. If the passed-in selector is None, then the tunnel is made
+        dual-stack. This requires two policies, one for IPv4 and one for IPv6.
+      src: The source address of the tunneled packets
+      dst: The destination address of the tunneled packets
+      spi: The SPI for the IPsec SA that encapsulates the tunneled packet
+      encryption: A tuple (XfrmAlgo, key), the encryption parameters.
+      auth_trunc: A tuple (XfrmAlgoAuth, key), the authentication parameters.
+      mark: An XfrmMark, the mark used for selecting packets to be tunneled, and
+        for matching the security policy. None means unspecified.
+      output_mark: The mark used to select the underlying network for packets
+        outbound from xfrm. None means unspecified.
+      xfrm_if_id: The ID of the XFRM interface to use or None.
+    """
+    outer_family = net_test.GetAddressFamily(net_test.GetAddressVersion(dst))
+
+    # Device code does not use mark; during AllocSpi, the mark is unset, and
+    # UPDSA does not update marks at this time. Actual use case will have no
+    # mark set. Test this use case.
+    self.AddSaInfo(src, dst, spi, XFRM_MODE_TUNNEL, 0, encryption, auth_trunc,
+                   None, None, None, output_mark, xfrm_if_id=xfrm_if_id)
+
+    if selector is None:
+      selectors = [EmptySelector(AF_INET), EmptySelector(AF_INET6)]
+    else:
+      selectors = [selector]
+
+    for selector in selectors:
+      policy = UserPolicy(direction, selector)
+      tmpl = UserTemplate(outer_family, spi, 0, (src, dst))
+      self.AddPolicyInfo(policy, tmpl, mark, xfrm_if_id=xfrm_if_id)
+
+  def DeleteTunnel(self, direction, selector, dst, spi, mark, xfrm_if_id):
+    if mark is not None:
+      mark = ExactMatchMark(mark)
+
+    self.DeleteSaInfo(dst, spi, IPPROTO_ESP, mark, xfrm_if_id)
+    if selector is None:
+      selectors = [EmptySelector(AF_INET), EmptySelector(AF_INET6)]
+    else:
+      selectors = [selector]
+    for selector in selectors:
+      self.DeletePolicyInfo(selector, direction, mark, xfrm_if_id)
 
 
 if __name__ == "__main__":

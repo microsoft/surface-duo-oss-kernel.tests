@@ -66,13 +66,17 @@ IPV4_PING = "\x08\x00\x00\x00\x0a\xce\x00\x03"
 IPV6_PING = "\x80\x00\x00\x00\x0a\xce\x00\x03"
 
 IPV4_ADDR = "8.8.8.8"
+IPV4_ADDR2 = "8.8.4.4"
 IPV6_ADDR = "2001:4860:4860::8888"
+IPV6_ADDR2 = "2001:4860:4860::8844"
 
 IPV6_SEQ_DGRAM_HEADER = ("  sl  "
                          "local_address                         "
                          "remote_address                        "
                          "st tx_queue rx_queue tr tm->when retrnsmt"
                          "   uid  timeout inode ref pointer drops\n")
+
+UDP_HDR_LEN = 8
 
 # Arbitrary packet payload.
 UDP_PAYLOAD = str(scapy.DNS(rd=1,
@@ -92,9 +96,12 @@ LINUX_VERSION = csocket.LinuxVersion()
 def GetWildcardAddress(version):
   return {4: "0.0.0.0", 6: "::"}[version]
 
+def GetIpHdrLength(version):
+  return {4: 20, 6: 40}[version]
 
 def GetAddressFamily(version):
-  return {4: AF_INET, 6: AF_INET6}[version]
+  return {4: AF_INET, 5: AF_INET6, 6: AF_INET6}[version]
+
 
 def AddressLengthBits(version):
   return {4: 32, 6: 128}[version]
@@ -337,9 +344,8 @@ def RunIptablesCommand(version, args):
   iptables = {4: "iptables", 6: "ip6tables"}[version]
   iptables_path = "/sbin/" + iptables
   if not os.access(iptables_path, os.X_OK):
-    iptables_path = "/system/bin" + iptables
+    iptables_path = "/system/bin/" + iptables
   return os.spawnvp(os.P_WAIT, iptables_path, [iptables_path] + args.split(" "))
-
 
 # Determine network configuration.
 try:

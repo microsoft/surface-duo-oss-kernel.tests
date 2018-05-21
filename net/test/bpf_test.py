@@ -19,6 +19,8 @@ import errno
 import os
 import socket
 import struct
+import subprocess
+import tempfile
 import unittest
 
 from bpf import *  # pylint: disable=wildcard-import
@@ -27,11 +29,11 @@ import net_test
 import sock_diag
 
 libc = ctypes.CDLL(ctypes.util.find_library("c"), use_errno=True)
-HAVE_EBPF_SUPPORT = net_test.LINUX_VERSION >= (4, 4, 0)
 HAVE_EBPF_ACCOUNTING = net_test.LINUX_VERSION >= (4, 9, 0)
 KEY_SIZE = 8
 VALUE_SIZE = 4
 TOTAL_ENTRIES = 20
+TEST_UID = 54321
 # Offset to store the map key in stack register REG10
 key_offset = -8
 # Offset to store the map value in stack register REG10
@@ -144,8 +146,8 @@ INS_BPF_PARAM_STORE = [
     BpfStxMem(BPF_DW, BPF_REG_10, BPF_REG_0, key_offset),
 ]
 
-@unittest.skipUnless(HAVE_EBPF_SUPPORT,
-                     "eBPF function not fully supported")
+@unittest.skipUnless(HAVE_EBPF_ACCOUNTING,
+                     "BPF helper function is not fully supported")
 class BpfTest(net_test.NetworkTest):
 
   def setUp(self):
@@ -170,27 +172,60 @@ class BpfTest(net_test.NetworkTest):
     DeleteMap(self.map_fd, key)
     self.assertRaisesErrno(errno.ENOENT, LookupMap, self.map_fd, key)
 
-  def testIterateMap(self):
-    self.map_fd = CreateMap(BPF_MAP_TYPE_HASH, KEY_SIZE, VALUE_SIZE,
-                            TOTAL_ENTRIES)
-    value = 1024
-    for key in xrange(1, TOTAL_ENTRIES):
-      UpdateMap(self.map_fd, key, value)
-    for key in xrange(1, TOTAL_ENTRIES):
-      self.assertEquals(value, LookupMap(self.map_fd, key).value)
-    self.assertRaisesErrno(errno.ENOENT, LookupMap, self.map_fd, 101)
-    key = 0
+  def CheckAllMapEntry(self, nonexistent_key, totalEntries, value):
     count = 0
-    while 1:
-      if count == TOTAL_ENTRIES - 1:
+    key = nonexistent_key
+    while True:
+      if count == totalEntries:
         self.assertRaisesErrno(errno.ENOENT, GetNextKey, self.map_fd, key)
         break
       else:
         result = GetNextKey(self.map_fd, key)
         key = result.value
-        self.assertGreater(key, 0)
+        self.assertGreaterEqual(key, 0)
         self.assertEquals(value, LookupMap(self.map_fd, key).value)
         count += 1
+
+  def testIterateMap(self):
+    self.map_fd = CreateMap(BPF_MAP_TYPE_HASH, KEY_SIZE, VALUE_SIZE,
+                            TOTAL_ENTRIES)
+    value = 1024
+    for key in xrange(0, TOTAL_ENTRIES):
+      UpdateMap(self.map_fd, key, value)
+    for key in xrange(0, TOTAL_ENTRIES):
+      self.assertEquals(value, LookupMap(self.map_fd, key).value)
+    self.assertRaisesErrno(errno.ENOENT, LookupMap, self.map_fd, 101)
+    nonexistent_key = -1
+    self.CheckAllMapEntry(nonexistent_key, TOTAL_ENTRIES, value)
+
+  def testFindFirstMapKey(self):
+    self.map_fd = CreateMap(BPF_MAP_TYPE_HASH, KEY_SIZE, VALUE_SIZE,
+                            TOTAL_ENTRIES)
+    value = 1024
+    for key in xrange(0, TOTAL_ENTRIES):
+      UpdateMap(self.map_fd, key, value)
+    firstKey = GetFirstKey(self.map_fd)
+    key = firstKey.value
+    self.CheckAllMapEntry(key, TOTAL_ENTRIES - 1, value)
+
+
+  def testRdOnlyMap(self):
+    self.map_fd = CreateMap(BPF_MAP_TYPE_HASH, KEY_SIZE, VALUE_SIZE,
+                            TOTAL_ENTRIES, map_flags=BPF_F_RDONLY)
+    value = 1024
+    key = 1
+    self.assertRaisesErrno(errno.EPERM, UpdateMap, self.map_fd, key, value)
+    self.assertRaisesErrno(errno.ENOENT, LookupMap, self.map_fd, key)
+
+  @unittest.skipUnless(HAVE_EBPF_ACCOUNTING,
+                       "BPF helper function is not fully supported")
+  def testWrOnlyMap(self):
+    self.map_fd = CreateMap(BPF_MAP_TYPE_HASH, KEY_SIZE, VALUE_SIZE,
+                            TOTAL_ENTRIES, map_flags=BPF_F_WRONLY)
+    value = 1024
+    key = 1
+    UpdateMap(self.map_fd, key, value)
+    self.assertRaisesErrno(errno.EPERM, LookupMap, self.map_fd, key)
 
   def testProgLoad(self):
     # Move skb to BPF_REG_6 for further usage
@@ -266,7 +301,7 @@ class BpfTest(net_test.NetworkTest):
                      + INS_SK_FILTER_ACCEPT)
     self.prog_fd = BpfProgLoad(BPF_PROG_TYPE_SOCKET_FILTER, instructions)
     packet_count = 10
-    uid = 12345
+    uid = TEST_UID
     with net_test.RunAsUid(uid):
       self.assertRaisesErrno(errno.ENOENT, LookupMap, self.map_fd, uid)
       SocketUDPLoopBack(packet_count, 4, self.prog_fd)
@@ -281,15 +316,22 @@ class BpfCgroupTest(net_test.NetworkTest):
 
   @classmethod
   def setUpClass(cls):
-    if not os.path.isdir("/tmp"):
-      os.mkdir('/tmp')
-    os.system('mount -t cgroup2 cg_bpf /tmp')
-    cls._cg_fd = os.open('/tmp', os.O_DIRECTORY | os.O_RDONLY)
+    cls._cg_dir = tempfile.mkdtemp(prefix="cg_bpf-")
+    cmd = "mount -t cgroup2 cg_bpf %s" % cls._cg_dir
+    try:
+      subprocess.check_call(cmd.split())
+    except subprocess.CalledProcessError:
+      # If an exception is thrown in setUpClass, the test fails and
+      # tearDownClass is not called.
+      os.rmdir(cls._cg_dir)
+      raise
+    cls._cg_fd = os.open(cls._cg_dir, os.O_DIRECTORY | os.O_RDONLY)
 
   @classmethod
   def tearDownClass(cls):
     os.close(cls._cg_fd)
-    os.system('umount cg_bpf')
+    subprocess.call(('umount %s' % cls._cg_dir).split())
+    os.rmdir(cls._cg_dir)
 
   def setUp(self):
     self.prog_fd = -1
@@ -344,13 +386,15 @@ class BpfCgroupTest(net_test.NetworkTest):
                      + INS_CGROUP_ACCEPT + INS_PACK_COUNT_UPDATE + INS_CGROUP_ACCEPT)
     self.prog_fd = BpfProgLoad(BPF_PROG_TYPE_CGROUP_SKB, instructions)
     BpfProgAttach(self.prog_fd, self._cg_fd, BPF_CGROUP_INET_INGRESS)
-    uid = os.getuid()
     packet_count = 20
-    SocketUDPLoopBack(packet_count, 4, None)
-    self.assertEquals(packet_count, LookupMap(self.map_fd, uid).value)
-    DeleteMap(self.map_fd, uid);
-    SocketUDPLoopBack(packet_count, 6, None)
-    self.assertEquals(packet_count, LookupMap(self.map_fd, uid).value)
+    uid = TEST_UID
+    with net_test.RunAsUid(uid):
+      self.assertRaisesErrno(errno.ENOENT, LookupMap, self.map_fd, uid)
+      SocketUDPLoopBack(packet_count, 4, None)
+      self.assertEquals(packet_count, LookupMap(self.map_fd, uid).value)
+      DeleteMap(self.map_fd, uid);
+      SocketUDPLoopBack(packet_count, 6, None)
+      self.assertEquals(packet_count, LookupMap(self.map_fd, uid).value)
     BpfProgDetach(self._cg_fd, BPF_CGROUP_INET_INGRESS)
 
 if __name__ == "__main__":

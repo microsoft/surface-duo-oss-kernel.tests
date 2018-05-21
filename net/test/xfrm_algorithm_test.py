@@ -54,8 +54,27 @@ AUTH_ALGOS = [
     xfrm.XfrmAlgoAuth((xfrm.XFRM_AALG_HMAC_SHA512, 512, 512)),
 ]
 
+# List of aead algorithms for use in ParamTests.
+AEAD_ALGOS = [
+    # RFC 4106 specifies that key length must be 128, 192 or 256 bits,
+    #   with an additional 4 bytes (32 bits) of salt. The salt must be unique
+    #   for each new SA using the same key.
+    # RFC 4106 specifies that ICV length must be 8, 12, or 16 bytes
+    xfrm.XfrmAlgoAead((xfrm.XFRM_AEAD_GCM_AES, 128+32,  8*8)),
+    xfrm.XfrmAlgoAead((xfrm.XFRM_AEAD_GCM_AES, 128+32, 12*8)),
+    xfrm.XfrmAlgoAead((xfrm.XFRM_AEAD_GCM_AES, 128+32, 16*8)),
+    xfrm.XfrmAlgoAead((xfrm.XFRM_AEAD_GCM_AES, 192+32,  8*8)),
+    xfrm.XfrmAlgoAead((xfrm.XFRM_AEAD_GCM_AES, 192+32, 12*8)),
+    xfrm.XfrmAlgoAead((xfrm.XFRM_AEAD_GCM_AES, 192+32, 16*8)),
+    xfrm.XfrmAlgoAead((xfrm.XFRM_AEAD_GCM_AES, 256+32,  8*8)),
+    xfrm.XfrmAlgoAead((xfrm.XFRM_AEAD_GCM_AES, 256+32, 12*8)),
+    xfrm.XfrmAlgoAead((xfrm.XFRM_AEAD_GCM_AES, 256+32, 16*8)),
+]
 
-class XfrmAlgorithmTest(xfrm_base.XfrmBaseTest):
+def InjectTests():
+    XfrmAlgorithmTest.InjectTests()
+
+class XfrmAlgorithmTest(xfrm_base.XfrmLazyTest):
   @classmethod
   def InjectTests(cls):
     """Inject parameterized test cases into this class.
@@ -77,27 +96,46 @@ class XfrmAlgorithmTest(xfrm_base.XfrmBaseTest):
     ]
     VERSIONS = (4, 6)
     TYPES = (SOCK_DGRAM, SOCK_STREAM)
+
+    # Tests all combinations of auth & crypt. Mutually exclusive with aead.
     for crypt, auth, version, proto, name in itertools.product(
         CRYPT_ALGOS, AUTH_ALGOS, VERSIONS, TYPES, param_test_names):
-      func = getattr(cls, name)
-      params = {"crypt": crypt, "auth": auth,
-                "version": version, "proto": proto}
+      XfrmAlgorithmTest.InjectSingleTest(name, version, proto, crypt=crypt, auth=auth)
 
-      def TestClosure(self, params=params):
-        func(self, params)
+    # Tests all combinations of aead. Mutually exclusive with auth/crypt.
+    for aead, version, proto, name in itertools.product(
+        AEAD_ALGOS, VERSIONS, TYPES, param_test_names):
+      XfrmAlgorithmTest.InjectSingleTest(name, version, proto, aead=aead)
 
-      # Produce a unique and readable name for each test. e.g.
-      #     testSocketPolicySimple_cbc-aes_256_hmac-sha512_512_256_IPv6_UDP
-      param_string = "%s_%d_%s_%d_%d_%s_%s" % (
-          crypt.name, crypt.key_len, auth.name, auth.key_len, auth.trunc_len,
-          "IPv4" if version == 4 else "IPv6",
-          "UDP" if proto == SOCK_DGRAM else "TCP")
-      new_name = "%s_%s" % (func.__name__.replace("ParamTest", "test"),
-                            param_string)
-      new_name = new_name.replace("(", "-").replace(")", "")  # remove parens
-      setattr(cls, new_name, TestClosure)
+  @classmethod
+  def InjectSingleTest(cls, name, version, proto, crypt=None, auth=None, aead=None):
+    func = getattr(cls, name)
 
-  @unittest.skipIf(net_test.LINUX_VERSION[:2] == (3, 18), "b/63589559")
+    def TestClosure(self):
+      func(self, {"crypt": crypt, "auth": auth, "aead": aead,
+          "version": version, "proto": proto})
+
+    # Produce a unique and readable name for each test. e.g.
+    #     testSocketPolicySimple_cbc-aes_256_hmac-sha512_512_256_IPv6_UDP
+    param_string = ""
+    if crypt is not None:
+      param_string += "%s_%d_" % (crypt.name, crypt.key_len)
+
+    if auth is not None:
+      param_string += "%s_%d_%d_" % (auth.name, auth.key_len,
+          auth.trunc_len)
+
+    if aead is not None:
+      param_string += "%s_%d_%d_" % (aead.name, aead.key_len,
+          aead.icv_len)
+
+    param_string += "%s_%s" % ("IPv4" if version == 4 else "IPv6",
+        "UDP" if proto == SOCK_DGRAM else "TCP")
+    new_name = "%s_%s" % (func.__name__.replace("ParamTest", "test"),
+                          param_string)
+    new_name = new_name.replace("(", "-").replace(")", "")  # remove parens
+    setattr(cls, new_name, TestClosure)
+
   def ParamTestSocketPolicySimple(self, params):
     """Test two-way traffic using transport mode and socket policies."""
 
@@ -117,23 +155,35 @@ class XfrmAlgorithmTest(xfrm_base.XfrmBaseTest):
     netid = self.RandomNetid()
     family = net_test.GetAddressFamily(params["version"])
     local_addr = self.MyAddress(params["version"], netid)
-    remote_addr = self.GetRemoteAddress(params["version"])
-    crypt_left = (xfrm.XfrmAlgo((params["crypt"].name,
-                                 params["crypt"].key_len)),
-                                 os.urandom(params["crypt"].key_len / 8))
-    crypt_right = (xfrm.XfrmAlgo((params["crypt"].name,
-                                  params["crypt"].key_len)),
-                                  os.urandom(params["crypt"].key_len / 8))
+    remote_addr = self.GetRemoteSocketAddress(params["version"])
+    crypt_left = (xfrm.XfrmAlgo((
+        params["crypt"].name,
+        params["crypt"].key_len)),
+        os.urandom(params["crypt"].key_len / 8)) if params["crypt"] else None
+    crypt_right = (xfrm.XfrmAlgo((
+        params["crypt"].name,
+        params["crypt"].key_len)),
+        os.urandom(params["crypt"].key_len / 8)) if params["crypt"] else None
     auth_left = (xfrm.XfrmAlgoAuth((
         params["auth"].name,
         params["auth"].key_len,
         params["auth"].trunc_len)),
-        os.urandom(params["auth"].key_len / 8))
+        os.urandom(params["auth"].key_len / 8)) if params["auth"] else None
     auth_right = (xfrm.XfrmAlgoAuth((
         params["auth"].name,
         params["auth"].key_len,
         params["auth"].trunc_len)),
-        os.urandom(params["auth"].key_len / 8))
+        os.urandom(params["auth"].key_len / 8)) if params["auth"] else None
+    aead_left = (xfrm.XfrmAlgoAead((
+        params["aead"].name,
+        params["aead"].key_len,
+        params["aead"].icv_len)),
+        os.urandom(params["aead"].key_len / 8)) if params["aead"] else None
+    aead_right = (xfrm.XfrmAlgoAead((
+        params["aead"].name,
+        params["aead"].key_len,
+        params["aead"].icv_len)),
+        os.urandom(params["aead"].key_len / 8)) if params["aead"] else None
     spi_left = 0xbeefface
     spi_right = 0xcafed00d
     req_ids = [100, 200, 300, 400]  # Used to match templates and SAs.
@@ -147,6 +197,7 @@ class XfrmAlgorithmTest(xfrm_base.XfrmBaseTest):
         reqid=req_ids[0],
         encryption=crypt_right,
         auth_trunc=auth_right,
+        aead=aead_right,
         encap=None,
         mark=None,
         output_mark=None)
@@ -159,6 +210,7 @@ class XfrmAlgorithmTest(xfrm_base.XfrmBaseTest):
         reqid=req_ids[1],
         encryption=crypt_right,
         auth_trunc=auth_right,
+        aead=aead_right,
         encap=None,
         mark=None,
         output_mark=None)
@@ -171,6 +223,7 @@ class XfrmAlgorithmTest(xfrm_base.XfrmBaseTest):
         reqid=req_ids[2],
         encryption=crypt_left,
         auth_trunc=auth_left,
+        aead=aead_left,
         encap=None,
         mark=None,
         output_mark=None)
@@ -183,6 +236,7 @@ class XfrmAlgorithmTest(xfrm_base.XfrmBaseTest):
         reqid=req_ids[3],
         encryption=crypt_left,
         auth_trunc=auth_left,
+        aead=aead_left,
         encap=None,
         mark=None,
         output_mark=None)
@@ -196,6 +250,12 @@ class XfrmAlgorithmTest(xfrm_base.XfrmBaseTest):
     sock_right.settimeout(2.0)
     sock_right.setsockopt(SOL_SOCKET, SO_REUSEADDR, 1)
     self.SelectInterface(sock_right, netid, "mark")
+
+    # For UDP, set SO_LINGER to 0, to prevent TCP sockets from hanging around
+    # in a TIME_WAIT state.
+    if params["proto"] == SOCK_STREAM:
+        net_test.DisableFinWait(sock_left)
+        net_test.DisableFinWait(sock_right)
 
     # Apply the left outbound socket policy.
     xfrm_base.ApplySocketPolicy(sock_left, family, xfrm.XFRM_POLICY_OUT,
@@ -265,8 +325,6 @@ class XfrmAlgorithmTest(xfrm_base.XfrmBaseTest):
       sock_left.send("hello request")
       data = sock_left.recv(2048)
       self.assertEquals("hello response", data)
-      if params["proto"] == SOCK_STREAM:
-        sock_left.shutdown(SHUT_RD)
       sock_left.close()
       server.join()
     if server_error:

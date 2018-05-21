@@ -86,7 +86,10 @@ class TcpBaseTest(multinetwork_base.MultiNetworkBaseTest):
     self.end_state = end_state
 
     remoteaddr = self.remoteaddr = self.GetRemoteAddress(version)
+    remotesockaddr = self.remotesockaddr = self.GetRemoteSocketAddress(version)
+
     myaddr = self.myaddr = self.MyAddress(version, netid)
+    mysockaddr = self.mysockaddr = self.MySocketAddress(version, netid)
 
     if version == 5: version = 4
     self.version = version
