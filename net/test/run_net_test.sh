@@ -204,6 +204,14 @@ if ((nobuild == 0)); then
     # The CC flag is *not* inherited from the environment, so it must be
     # passed in on the command line.
     make_flags="$make_flags CC=$CC"
+    # TODO: Remove this workaround for https://lkml.org/lkml/2018/5/7/534
+    # Needs a change to clang to be merged, an updated toolchain, and
+    # a new __nostackprotector annotation of the affected PARAVIRT
+    # code in the affected kernel branches (android-4.4, android-4.9,
+    # android-4.14). This sidesteps the issue by disabling PARAVIRT.
+    if [ "$CC" == "clang" ]; then
+      DISABLE_OPTIONS="$DISABLE_OPTIONS PARAVIRT"
+    fi
   fi
 
   # If there's no kernel config at all, create one or UML won't work.
