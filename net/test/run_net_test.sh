@@ -31,7 +31,6 @@ OPTIONS="$OPTIONS CRYPTO_GCM CRYPTO_ECHAINIV NET_IPVTI"
 
 # Kernel version specific options
 OPTIONS="$OPTIONS XFRM_INTERFACE"                # Various device kernels
-OPTIONS="$OPTIONS BLK_DEV_UBD HOSTFS"            # Unset by default in 4.14
 OPTIONS="$OPTIONS CGROUP_BPF"                    # Added in android-4.9
 OPTIONS="$OPTIONS NF_SOCKET_IPV4 NF_SOCKET_IPV6" # Added in 4.9
 OPTIONS="$OPTIONS INET_SCTP_DIAG"                # Added in 4.7
@@ -41,6 +40,12 @@ OPTIONS="$OPTIONS BPF_SYSCALL"                   # Added in 3.18
 OPTIONS="$OPTIONS IPV6_VTI"                      # Added in 3.13
 OPTIONS="$OPTIONS IPV6_PRIVACY"                  # Removed in 3.12
 OPTIONS="$OPTIONS NETFILTER_TPROXY"              # Removed in 3.11
+
+# UML specific options
+OPTIONS="$OPTIONS BLK_DEV_UBD HOSTFS"
+
+# QEMU specific options
+OPTIONS="$OPTIONS VIRTIO VIRTIO_PCI VIRTIO_BLK NET_9P NET_9P_VIRTIO 9P_FS"
 
 # Obsolete options present at some time in Android kernels
 OPTIONS="$OPTIONS IP_NF_TARGET_REJECT_SKERR IP6_NF_TARGET_REJECT_SKERR"
@@ -69,6 +74,7 @@ COMPRESSED_ROOTFS=$ROOTFS.xz
 URL=https://dl.google.com/dl/android/$COMPRESSED_ROOTFS
 
 # Parse arguments and figure out which test to run.
+ARCH=${ARCH:-um}
 J=${J:-64}
 MAKE="make"
 OUT_DIR=$(readlink -f ${OUT_DIR:-.})
@@ -80,8 +86,10 @@ SCRIPT_DIR=$(dirname $(readlink -f $0))
 CONFIG_SCRIPT=${KERNEL_DIR}/scripts/config
 CONFIG_FILE=${OUT_DIR}/.config
 consolemode=
+netconfig=
 testmode=
-blockdevice=ubda
+cmdline=
+nowrite=0
 nobuild=0
 norun=0
 
@@ -91,7 +99,7 @@ while [ -n "$1" ]; do
     testmode=builder
     shift
   elif [ "$1" == "--readonly" ]; then
-    blockdevice="${blockdevice}r"
+    nowrite=1
     shift
   elif [ "$1" == "--nobuild" ]; then
     nobuild=1
@@ -160,12 +168,16 @@ cd -
 if (( $NUMTAPINTERFACES > 0 )); then
   user=${USER:0:10}
   tapinterfaces=
-  netconfig=
   for id in $(seq 0 $(( NUMTAPINTERFACES - 1 )) ); do
     tap=${user}TAP$id
     tapinterfaces="$tapinterfaces $tap"
     mac=$(printf fe:fd:00:00:00:%02x $id)
-    netconfig="$netconfig eth$id=tuntap,$tap,$mac"
+    if [ "$ARCH" == "um" ]; then
+      netconfig="$netconfig eth$id=tuntap,$tap,$mac"
+    else
+      netconfig="$netconfig -netdev tap,id=hostnet$id,ifname=$tap,script=no,downscript=no"
+      netconfig="$netconfig -device virtio-net-pci,netdev=hostnet$id,id=net$id,mac=$mac"
+    fi
   done
 
   for tap in $tapinterfaces; do
@@ -179,50 +191,108 @@ fi
 
 if [ -n "$KERNEL_BINARY" ]; then
   nobuild=1
-else
-  KERNEL_BINARY=./linux
 fi
 
 if ((nobuild == 0)); then
-  # Exporting ARCH=um SUBARCH=x86_64 doesn't seem to work, as it "sometimes"
-  # (?) results in a 32-bit kernel.
-
-  # If there's no kernel config at all, create one or UML won't work.
-  [ -f $CONFIG_FILE ] || (cd $KERNEL_DIR && $MAKE defconfig ARCH=um SUBARCH=x86_64)
-
-  # Enable the kernel config options listed in $OPTIONS.
-  cmdline=${OPTIONS// / -e }
-  $CONFIG_SCRIPT --file $CONFIG_FILE $cmdline
-
-  # Disable the kernel config options listed in $DISABLE_OPTIONS.
-  cmdline=${DISABLE_OPTIONS// / -d }
-  $CONFIG_SCRIPT --file $CONFIG_FILE $cmdline
-
-  # olddefconfig doesn't work on old kernels.
-  if ! $MAKE olddefconfig ARCH=um SUBARCH=x86_64 CROSS_COMPILE= ; then
-    cat >&2 << EOF
-
-Warning: "make olddefconfig" failed.
-Perhaps this kernel is too old to support it.
-You may get asked lots of questions.
-Keep enter pressed to accept the defaults.
-
-EOF
+  make_flags=
+  if [ "$ARCH" == "um" ]; then
+    # Exporting ARCH=um SUBARCH=x86_64 doesn't seem to work, as it
+    # "sometimes" (?) results in a 32-bit kernel.
+    make_flags="$make_flags ARCH=$ARCH SUBARCH=x86_64 CROSS_COMPILE= "
+  fi
+  if [ -n "$CC" ]; then
+    # The CC flag is *not* inherited from the environment, so it must be
+    # passed in on the command line.
+    make_flags="$make_flags CC=$CC"
   fi
 
+  # If there's no kernel config at all, create one or UML won't work.
+  [ -n "$DEFCONFIG" ] || DEFCONFIG=defconfig
+  [ -f $CONFIG_FILE ] || (cd $KERNEL_DIR && $MAKE $make_flags $DEFCONFIG)
+
+  # Enable the kernel config options listed in $OPTIONS.
+  $CONFIG_SCRIPT --file $CONFIG_FILE ${OPTIONS// / -e }
+
+  # Disable the kernel config options listed in $DISABLE_OPTIONS.
+  $CONFIG_SCRIPT --file $CONFIG_FILE ${DISABLE_OPTIONS// / -d }
+
+  $MAKE $make_flags olddefconfig
+
   # Compile the kernel.
-  $MAKE -j$J linux ARCH=um SUBARCH=x86_64 CROSS_COMPILE=
+  if [ "$ARCH" == "um" ]; then
+    $MAKE -j$J $make_flags linux
+    KERNEL_BINARY=./linux
+  else
+    $MAKE -j$J $make_flags
+    # Assume x86_64 bzImage for now
+    KERNEL_BINARY=./arch/x86/boot/bzImage
+  fi
 fi
 
 if (( norun == 1 )); then
   exit 0
 fi
 
-# Get the absolute path to the test file that's being run.
-dir=/host$SCRIPT_DIR
+if (( nowrite == 1 )); then
+  cmdline="ro"
+fi
+cmdline="$cmdline init=/sbin/net_test.sh"
+cmdline="$cmdline net_test_args=\"$test_args\" net_test_mode=$testmode"
 
-# Start the VM.
-exec $KERNEL_BINARY umid=net_test $blockdevice=$SCRIPT_DIR/$ROOTFS \
-    mem=512M init=/sbin/net_test.sh net_test=$dir/$test \
-    net_test_args=\"$test_args\" \
-    net_test_mode=$testmode $netconfig $consolemode >&2
+if [ "$ARCH" == "um" ]; then
+  # Get the absolute path to the test file that's being run.
+  cmdline="$cmdline net_test=/host$SCRIPT_DIR/$test"
+
+  # Use UML's /proc/exitcode feature to communicate errors on test failure
+  cmdline="$cmdline net_test_exitcode=/proc/exitcode"
+
+  # Map the --readonly flag to UML block device names
+  if ((nowrite == 0)); then
+    blockdevice=ubda
+  else
+    blockdevice="${blockdevice}r"
+  fi
+
+  exec $KERNEL_BINARY >&2 umid=net_test mem=512M \
+    $blockdevice=$SCRIPT_DIR/$ROOTFS $netconfig $consolemode $cmdline
+else
+  # We boot into the filesystem image directly in all cases
+  cmdline="$cmdline root=/dev/vda"
+
+  # The path is stripped by the 9p export; we don't need SCRIPT_DIR
+  cmdline="$cmdline net_test=/host/$test"
+
+  # QEMU has no way to modify its exitcode; simulate it with a serial port.
+  #
+  # Choose to do it this way over writing a file to /host, because QEMU will
+  # initialize the 'exitcode' file for us, it avoids unnecessary writes to the
+  # host filesystem (which is normally not written to) and it allows us to
+  # communicate an exit code back in cases we do not have /host mounted.
+  #
+  # The assignment of 'ttyS1' here is magical -- we know 'ttyS0' will be our
+  # serial port from the hard-coded '-serial stdio' flag below, and so this
+  # second serial port will be 'ttyS1'.
+  cmdline="$cmdline net_test_exitcode=/dev/ttyS1"
+
+  # Map the --readonly flag to a QEMU block device flag
+  blockdevice=
+  if ((nowrite > 0)); then
+    blockdevice=",readonly"
+  fi
+  blockdevice="-drive file=$SCRIPT_DIR/$ROOTFS,format=raw,if=none,id=drive-virtio-disk0$blockdevice"
+  blockdevice="$blockdevice -device virtio-blk-pci,drive=drive-virtio-disk0"
+
+  # Assume x86_64 PC emulation for now
+  qemu-system-x86_64 >&2 -name net_test -m 512 \
+    -kernel $KERNEL_BINARY \
+    -no-user-config -nodefaults -no-reboot -display none \
+    -machine pc,accel=kvm -cpu host -smp 4,sockets=4,cores=1,threads=1 \
+    -chardev file,id=exitcode,path=exitcode \
+    -device isa-serial,chardev=exitcode \
+    -fsdev local,security_model=mapped-xattr,id=fsdev0,fmode=0644,dmode=0755,path=$SCRIPT_DIR \
+    -device virtio-9p-pci,id=fs0,fsdev=fsdev0,mount_tag=host \
+    $blockdevice $netconfig -serial stdio -append "$cmdline"
+  [ -s exitcode ] && exitcode=`cat exitcode | tr -d '\r'` || exitcode=1
+  rm -f exitcode
+  exit $exitcode
+fi
