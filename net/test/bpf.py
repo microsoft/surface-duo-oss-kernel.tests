@@ -26,6 +26,7 @@ import socket
 # TODO: is there a better way of doing this?
 __NR_bpf = {
     "aarch64": 280,
+    "armv7l": 386,
     "armv8l": 386,
     "x86_64": 321}[os.uname()[4]]
 
