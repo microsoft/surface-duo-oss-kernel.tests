@@ -32,6 +32,7 @@ import platform
 # TODO: is there a better way of doing this?
 __NR_bpf = {
     "aarch64-64bit": 280,
+    "armv7l-32bit": 386,
     "armv8l-32bit": 386,
     "armv8l-64bit": 280,
     "i686-32bit": 357,
