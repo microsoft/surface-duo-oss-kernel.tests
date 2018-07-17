@@ -191,6 +191,14 @@ fi
 
 if [ -n "$KERNEL_BINARY" ]; then
   nobuild=1
+else
+  # Set default KERNEL_BINARY location if it was not provided.
+  if [ "$ARCH" == "um" ]; then
+    KERNEL_BINARY=./linux
+  else
+    # Assume x86_64 bzImage for now
+    KERNEL_BINARY=./arch/x86/boot/bzImage
+  fi
 fi
 
 if ((nobuild == 0)); then
@@ -229,11 +237,8 @@ if ((nobuild == 0)); then
   # Compile the kernel.
   if [ "$ARCH" == "um" ]; then
     $MAKE -j$J $make_flags linux
-    KERNEL_BINARY=./linux
   else
     $MAKE -j$J $make_flags
-    # Assume x86_64 bzImage for now
-    KERNEL_BINARY=./arch/x86/boot/bzImage
   fi
 fi
 
