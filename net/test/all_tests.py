@@ -27,6 +27,7 @@ test_modules = [
     'leak_test',
     'multinetwork_test',
     'neighbour_test',
+    'nf_test',
     'pf_key_test',
     'ping6_test',
     'qtaguid_test',
