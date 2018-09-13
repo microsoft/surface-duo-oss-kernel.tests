@@ -16,7 +16,7 @@
 #
 
 mount -t proc none /proc
-mount -t sys none /sys
+mount -t sysfs none /sys
 mount -t tmpfs tmpfs /tmp
 mount -t tmpfs tmpfs /run
 
