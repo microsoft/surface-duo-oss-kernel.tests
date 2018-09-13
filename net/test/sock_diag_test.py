@@ -891,7 +891,7 @@ class SockDestroyUdpTest(SockDiagBaseTest):
       family = {4: AF_INET, 5: AF_INET6, 6: AF_INET6}[version]
       s = net_test.UDPSocket(family)
       self.SelectInterface(s, random.choice(self.NETIDS), "mark")
-      addr = self.GetRemoteAddress(version)
+      addr = self.GetRemoteSocketAddress(version)
 
       # Check that reads on connected sockets are interrupted.
       s.connect((addr, 53))
