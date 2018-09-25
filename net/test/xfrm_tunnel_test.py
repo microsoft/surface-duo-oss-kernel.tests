@@ -87,7 +87,10 @@ def _GetRemoteOuterAddress(version):
 
 def _GetNullAuthCryptTunnelModePkt(inner_version, src_inner, src_outer,
                                    src_port, dst_inner, dst_outer,
-                                   dst_port, spi, seq_num, ip_hdr_options={}):
+                                   dst_port, spi, seq_num, ip_hdr_options=None):
+  if ip_hdr_options is None:
+    ip_hdr_options = {}
+
   ip_hdr_options.update({'src': src_inner, 'dst': dst_inner})
 
   # Build and receive an ESP packet destined for the inner socket
