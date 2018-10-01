@@ -69,7 +69,7 @@ DISABLE_OPTIONS="$DISABLE_OPTIONS SYSVIPC"
 NUMTAPINTERFACES=0
 
 # The root filesystem disk image we'll use.
-ROOTFS=net_test.rootfs.20150203
+ROOTFS=${ROOTFS:-net_test.rootfs.20150203}
 COMPRESSED_ROOTFS=$ROOTFS.xz
 URL=https://dl.google.com/dl/android/$COMPRESSED_ROOTFS
 
