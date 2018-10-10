@@ -300,6 +300,7 @@ else
     -kernel $KERNEL_BINARY \
     -no-user-config -nodefaults -no-reboot -display none \
     -machine pc,accel=kvm -cpu host -smp 4,sockets=4,cores=1,threads=1 \
+    -device virtio-rng-pci \
     -chardev file,id=exitcode,path=exitcode \
     -device isa-serial,chardev=exitcode \
     -fsdev local,security_model=mapped-xattr,id=fsdev0,fmode=0644,dmode=0755,path=$SCRIPT_DIR \
