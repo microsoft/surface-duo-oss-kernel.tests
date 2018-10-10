@@ -17,6 +17,7 @@ netcat-openbsd
 netcat-traditional
 net-tools
 openssl
+pciutils
 procps
 psmisc
 python
@@ -27,5 +28,6 @@ tcpdump
 traceroute
 udev
 udhcpc
+usbutils
 vim-tiny
 wget
