@@ -263,7 +263,7 @@ if [ "$ARCH" == "um" ]; then
   if ((nowrite == 0)); then
     blockdevice=ubda
   else
-    blockdevice="${blockdevice}r"
+    blockdevice=ubdar
   fi
 
   exec $KERNEL_BINARY >&2 umid=net_test mem=512M \
@@ -288,9 +288,10 @@ else
   cmdline="$cmdline net_test_exitcode=/dev/ttyS1"
 
   # Map the --readonly flag to a QEMU block device flag
-  blockdevice=
   if ((nowrite > 0)); then
     blockdevice=",readonly"
+  else
+    blockdevice=
   fi
   blockdevice="-drive file=$SCRIPT_DIR/$ROOTFS,format=raw,if=none,id=drive-virtio-disk0$blockdevice"
   blockdevice="$blockdevice -device virtio-blk-pci,drive=drive-virtio-disk0"
