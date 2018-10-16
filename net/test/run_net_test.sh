@@ -89,22 +89,25 @@ consolemode=
 netconfig=
 testmode=
 cmdline=
-nowrite=0
+nowrite=1
 nobuild=0
 norun=0
 
-while [ -n "$1" ]; do
-  if [ "$1" = "--builder" ]; then
+while [[ -n "$1" ]]; do
+  if [[ "$1" == "--builder" ]]; then
     consolemode="con=null,fd:1"
     testmode=builder
     shift
-  elif [ "$1" == "--readonly" ]; then
+  elif [[ "$1" == "--readwrite" || "$1" == "--rw" ]]; then
+    nowrite=0
+    shift
+  elif [[ "$1" == "--readonly" ||  "$1" == "--ro" ]]; then
     nowrite=1
     shift
-  elif [ "$1" == "--nobuild" ]; then
+  elif [[ "$1" == "--nobuild" ]]; then
     nobuild=1
     shift
-  elif [ "$1" == "--norun" ]; then
+  elif [[ "$1" == "--norun" ]]; then
     norun=1
     shift
   else
@@ -138,7 +141,7 @@ function isBuildOnly() {
 
 if ! isRunningTest && ! isBuildOnly; then
   echo "Usage:" >&2
-  echo "  $0 [--builder] [--readonly] [--nobuild] <test>" >&2
+  echo "  $0 [--builder] [--readonly|--ro|--readwrite|--rw] [--nobuild] <test>" >&2
   echo "  $0 --norun" >&2
   exit 1
 fi
