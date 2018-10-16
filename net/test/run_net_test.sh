@@ -273,6 +273,17 @@ if [ "$ARCH" == "um" ]; then
   # Use UML's /proc/exitcode feature to communicate errors on test failure
   cmdline="$cmdline net_test_exitcode=/proc/exitcode"
 
+  # Experience shows we need at least 128 bits of entropy for the kernel's
+  # crng init to complete, hence net_test.sh needs at least 32 hex chars
+  # (which is the amount of hex in a single random UUID) provided to it on
+  # the kernel cmdline.
+  #
+  # We'll pass in 256 bits just to be safe, ie. a random 64 hex char seed.
+  # We do this by getting *two* random UUIDs and concatenating their hex
+  # digits into an even length hex encoded string.
+  entropy="$(cat /proc/sys/kernel/random{/,/}uuid | tr -d '\n-')"
+  cmdline="${cmdline} entropy=${entropy}"
+
   # Map the --readonly flag to UML block device names
   if ((nowrite == 0)); then
     blockdevice=ubda
