@@ -1,5 +1,16 @@
 #!/bin/bash
 
+# Builds mysteriously fail if stdout is non-blocking.
+fixup_ptys() {
+  python << 'EOF'
+import fcntl, os, sys
+fd = sys.stdout.fileno()
+flags = fcntl.fcntl(fd, fcntl.F_GETFL)
+flags &= ~(fcntl.FASYNC | os.O_NONBLOCK | os.O_APPEND)
+fcntl.fcntl(fd, fcntl.F_SETFL, flags)
+EOF
+}
+
 # Common kernel options
 OPTIONS=" DEBUG_SPINLOCK DEBUG_ATOMIC_SLEEP DEBUG_MUTEXES DEBUG_RT_MUTEXES"
 OPTIONS="$OPTIONS DEVTMPFS DEVTMPFS_MOUNT FHANDLE"
@@ -269,8 +280,9 @@ if [ "$ARCH" == "um" ]; then
     blockdevice=ubdar
   fi
 
-  exec $KERNEL_BINARY >&2 umid=net_test mem=512M \
+  $KERNEL_BINARY >&2 umid=net_test mem=512M \
     $blockdevice=$SCRIPT_DIR/$ROOTFS $netconfig $consolemode $cmdline
+  exitcode=$?
 else
   # We boot into the filesystem image directly in all cases
   cmdline="$cmdline root=/dev/vda"
@@ -312,5 +324,8 @@ else
     $blockdevice $netconfig -serial stdio -append "$cmdline"
   [ -s exitcode ] && exitcode=`cat exitcode | tr -d '\r'` || exitcode=1
   rm -f exitcode
-  exit $exitcode
 fi
+
+# UML reliably screws up the ptys, QEMU probably can as well...
+fixup_ptys
+exit "${exitcode}"
