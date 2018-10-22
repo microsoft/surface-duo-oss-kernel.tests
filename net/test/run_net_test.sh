@@ -1,5 +1,16 @@
 #!/bin/bash
 
+# Builds mysteriously fail if stdout is non-blocking.
+fixup_ptys() {
+  python << 'EOF'
+import fcntl, os, sys
+fd = sys.stdout.fileno()
+flags = fcntl.fcntl(fd, fcntl.F_GETFL)
+flags &= ~(fcntl.FASYNC | os.O_NONBLOCK | os.O_APPEND)
+fcntl.fcntl(fd, fcntl.F_SETFL, flags)
+EOF
+}
+
 # Common kernel options
 OPTIONS=" DEBUG_SPINLOCK DEBUG_ATOMIC_SLEEP DEBUG_MUTEXES DEBUG_RT_MUTEXES"
 OPTIONS="$OPTIONS DEVTMPFS DEVTMPFS_MOUNT FHANDLE"
@@ -89,22 +100,25 @@ consolemode=
 netconfig=
 testmode=
 cmdline=
-nowrite=0
+nowrite=1
 nobuild=0
 norun=0
 
-while [ -n "$1" ]; do
-  if [ "$1" = "--builder" ]; then
+while [[ -n "$1" ]]; do
+  if [[ "$1" == "--builder" ]]; then
     consolemode="con=null,fd:1"
     testmode=builder
     shift
-  elif [ "$1" == "--readonly" ]; then
+  elif [[ "$1" == "--readwrite" || "$1" == "--rw" ]]; then
+    nowrite=0
+    shift
+  elif [[ "$1" == "--readonly" ||  "$1" == "--ro" ]]; then
     nowrite=1
     shift
-  elif [ "$1" == "--nobuild" ]; then
+  elif [[ "$1" == "--nobuild" ]]; then
     nobuild=1
     shift
-  elif [ "$1" == "--norun" ]; then
+  elif [[ "$1" == "--norun" ]]; then
     norun=1
     shift
   else
@@ -138,7 +152,7 @@ function isBuildOnly() {
 
 if ! isRunningTest && ! isBuildOnly; then
   echo "Usage:" >&2
-  echo "  $0 [--builder] [--readonly] [--nobuild] <test>" >&2
+  echo "  $0 [--builder] [--readonly|--ro|--readwrite|--rw] [--nobuild] <test>" >&2
   echo "  $0 --norun" >&2
   exit 1
 fi
@@ -259,15 +273,27 @@ if [ "$ARCH" == "um" ]; then
   # Use UML's /proc/exitcode feature to communicate errors on test failure
   cmdline="$cmdline net_test_exitcode=/proc/exitcode"
 
+  # Experience shows we need at least 128 bits of entropy for the kernel's
+  # crng init to complete, hence net_test.sh needs at least 32 hex chars
+  # (which is the amount of hex in a single random UUID) provided to it on
+  # the kernel cmdline.
+  #
+  # We'll pass in 256 bits just to be safe, ie. a random 64 hex char seed.
+  # We do this by getting *two* random UUIDs and concatenating their hex
+  # digits into an even length hex encoded string.
+  entropy="$(cat /proc/sys/kernel/random{/,/}uuid | tr -d '\n-')"
+  cmdline="${cmdline} entropy=${entropy}"
+
   # Map the --readonly flag to UML block device names
   if ((nowrite == 0)); then
     blockdevice=ubda
   else
-    blockdevice="${blockdevice}r"
+    blockdevice=ubdar
   fi
 
-  exec $KERNEL_BINARY >&2 umid=net_test mem=512M \
+  $KERNEL_BINARY >&2 umid=net_test mem=512M \
     $blockdevice=$SCRIPT_DIR/$ROOTFS $netconfig $consolemode $cmdline
+  exitcode=$?
 else
   # We boot into the filesystem image directly in all cases
   cmdline="$cmdline root=/dev/vda"
@@ -288,9 +314,10 @@ else
   cmdline="$cmdline net_test_exitcode=/dev/ttyS1"
 
   # Map the --readonly flag to a QEMU block device flag
-  blockdevice=
   if ((nowrite > 0)); then
     blockdevice=",readonly"
+  else
+    blockdevice=
   fi
   blockdevice="-drive file=$SCRIPT_DIR/$ROOTFS,format=raw,if=none,id=drive-virtio-disk0$blockdevice"
   blockdevice="$blockdevice -device virtio-blk-pci,drive=drive-virtio-disk0"
@@ -308,5 +335,8 @@ else
     $blockdevice $netconfig -serial stdio -append "$cmdline"
   [ -s exitcode ] && exitcode=`cat exitcode | tr -d '\r'` || exitcode=1
   rm -f exitcode
-  exit $exitcode
 fi
+
+# UML reliably screws up the ptys, QEMU probably can as well...
+fixup_ptys
+exit "${exitcode}"
