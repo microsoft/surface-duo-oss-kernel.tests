@@ -648,8 +648,8 @@ class XfrmTunnelBase(xfrm_base.XfrmBaseTest):
       self.assertRaisesErrno(EAGAIN, read_sock.recv, 4096)
     else:
       # Verify that the packet data and src are correct
-      self.assertReceivedPacket(tunnel, sa_info)
       data, src = read_sock.recvfrom(4096)
+      self.assertReceivedPacket(tunnel, sa_info)
       self.assertEquals(net_test.UDP_PAYLOAD, data)
       self.assertEquals((remote_inner, _TEST_REMOTE_PORT), src[:2])
 
