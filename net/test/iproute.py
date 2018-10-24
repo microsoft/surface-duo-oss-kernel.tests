@@ -147,6 +147,7 @@ NDA_DST = 1
 NDA_LLADDR = 2
 NDA_CACHEINFO = 3
 NDA_PROBES = 4
+NDA_IFINDEX = 8
 
 # Neighbour cache entry states.
 NUD_PERMANENT = 0x80
@@ -635,9 +636,10 @@ class IPRoute(netlink.NetlinkSocket):
     self._Neighbour(version, True, addr, lladdr, dev, state,
                     flags=netlink.NLM_F_REPLACE)
 
-  def DumpNeighbours(self, version):
+  def DumpNeighbours(self, version, ifindex):
     ndmsg = NdMsg((self._AddressFamily(version), 0, 0, 0, 0))
-    return self._Dump(RTM_GETNEIGH, ndmsg, NdMsg, "")
+    attrs = self._NlAttrU32(NDA_IFINDEX, ifindex) if ifindex else ""
+    return self._Dump(RTM_GETNEIGH, ndmsg, NdMsg, attrs)
 
   def ParseNeighbourMessage(self, msg):
     msg, _ = self._ParseNLMsg(msg, NdMsg)
