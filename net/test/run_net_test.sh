@@ -57,6 +57,7 @@ OPTIONS="$OPTIONS BLK_DEV_UBD HOSTFS"
 
 # QEMU specific options
 OPTIONS="$OPTIONS VIRTIO VIRTIO_PCI VIRTIO_BLK NET_9P NET_9P_VIRTIO 9P_FS"
+OPTIONS="$OPTIONS SERIAL_8250 SERIAL_8250_PCI"
 
 # Obsolete options present at some time in Android kernels
 OPTIONS="$OPTIONS IP_NF_TARGET_REJECT_SKERR IP6_NF_TARGET_REJECT_SKERR"
@@ -209,9 +210,10 @@ else
   # Set default KERNEL_BINARY location if it was not provided.
   if [ "$ARCH" == "um" ]; then
     KERNEL_BINARY=./linux
-  else
-    # Assume x86_64 bzImage for now
+  elif [ "$ARCH" == "i386" -o "$ARCH" == "x86_64" -o "$ARCH" == "x86" ]; then
     KERNEL_BINARY=./arch/x86/boot/bzImage
+  elif [ "$ARCH" == "arm64" ]; then
+    KERNEL_BINARY=./arch/arm64/boot/Image.gz
   fi
 fi
 
@@ -301,18 +303,6 @@ else
   # The path is stripped by the 9p export; we don't need SCRIPT_DIR
   cmdline="$cmdline net_test=/host/$test"
 
-  # QEMU has no way to modify its exitcode; simulate it with a serial port.
-  #
-  # Choose to do it this way over writing a file to /host, because QEMU will
-  # initialize the 'exitcode' file for us, it avoids unnecessary writes to the
-  # host filesystem (which is normally not written to) and it allows us to
-  # communicate an exit code back in cases we do not have /host mounted.
-  #
-  # The assignment of 'ttyS1' here is magical -- we know 'ttyS0' will be our
-  # serial port from the hard-coded '-serial stdio' flag below, and so this
-  # second serial port will be 'ttyS1'.
-  cmdline="$cmdline net_test_exitcode=/dev/ttyS1"
-
   # Map the --readonly flag to a QEMU block device flag
   if ((nowrite > 0)); then
     blockdevice=",readonly"
@@ -322,14 +312,38 @@ else
   blockdevice="-drive file=$SCRIPT_DIR/$ROOTFS,format=raw,if=none,id=drive-virtio-disk0$blockdevice"
   blockdevice="$blockdevice -device virtio-blk-pci,drive=drive-virtio-disk0"
 
-  # Assume x86_64 PC emulation for now
-  qemu-system-x86_64 >&2 -name net_test -m 512 \
+  # QEMU has no way to modify its exitcode; simulate it with a serial port.
+  #
+  # Choose to do it this way over writing a file to /host, because QEMU will
+  # initialize the 'exitcode' file for us, it avoids unnecessary writes to the
+  # host filesystem (which is normally not written to) and it allows us to
+  # communicate an exit code back in cases we do not have /host mounted.
+  #
+  if [ "$ARCH" == "i386" -o "$ARCH" == "x86_64" -o "$ARCH" == "x86" ]; then
+    # Assume we have hardware-accelerated virtualization support for amd64
+    qemu="qemu-system-x86_64 -machine pc,accel=kvm -cpu host"
+
+    # The assignment of 'ttyS1' here is magical -- we know 'ttyS0' will be our
+    # serial port from the hard-coded '-serial stdio' flag below, and so this
+    # second serial port will be 'ttyS1'.
+    cmdline="$cmdline net_test_exitcode=/dev/ttyS1"
+  elif [ "$ARCH" == "arm64" ]; then
+    # This uses a software model CPU, based on cortex-a57
+    qemu="qemu-system-aarch64 -machine virt -cpu cortex-a57"
+
+    # The kernel will print messages via a virtual ARM serial port (ttyAMA0),
+    # but for command line consistency with x86, we put the exitcode serial
+    # port on the PCI bus, and it will be the only one.
+    cmdline="$cmdline net_test_exitcode=/dev/ttyS0"
+  fi
+
+  $qemu >&2 -name net_test -m 512 \
     -kernel $KERNEL_BINARY \
     -no-user-config -nodefaults -no-reboot -display none \
-    -machine pc,accel=kvm -cpu host -smp 4,sockets=4,cores=1,threads=1 \
+    -smp 4,sockets=4,cores=1,threads=1 \
     -device virtio-rng-pci \
     -chardev file,id=exitcode,path=exitcode \
-    -device isa-serial,chardev=exitcode \
+    -device pci-serial,chardev=exitcode \
     -fsdev local,security_model=mapped-xattr,id=fsdev0,fmode=0644,dmode=0755,path=$SCRIPT_DIR \
     -device virtio-9p-pci,id=fs0,fsdev=fsdev0,mount_tag=host \
     $blockdevice $netconfig -serial stdio -append "$cmdline"
