@@ -20,14 +20,17 @@ set -e
 SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd -P)
 
 usage() {
-  echo "usage: $0 [-h] [-s wheezy|stretch] [-n net_test.rootfs.`date +%Y%m%d`]"
+  echo -n "usage: $0 [-h] [-s wheezy|stretch] [-a amd64|arm64] "
+  echo "[-m http://mirror/debian] [-n net_test.rootfs.`date +%Y%m%d`]"
   exit 1
 }
 
-name=net_test.rootfs.`date +%Y%m%d`
+mirror=http://ftp.debian.org/debian
+debootstrap=debootstrap
 suite=stretch
+arch=amd64
 
-while getopts ":hs:n:" opt; do
+while getopts ":hs:a:m:n:" opt; do
   case $opt in
     h)
       usage
@@ -38,6 +41,16 @@ while getopts ":hs:n:" opt; do
         usage
       fi
       suite=$OPTARG
+      ;;
+    a)
+      if [ "$OPTARG" != "amd64" -a "$OPTARG" != "arm64" ]; then
+        echo "Invalid arch: $OPTARG" >&2
+        usage
+      fi
+      arch=$OPTARG
+      ;;
+    m)
+      mirror=$OPTARG
       ;;
     n)
       name=$OPTARG
@@ -52,6 +65,13 @@ while getopts ":hs:n:" opt; do
       ;;
   esac
 done
+
+name=net_test.rootfs.$arch.`date +%Y%m%d`
+
+# Switch to qemu-debootstrap for incompatible architectures
+if [ "$arch" = "arm64" ]; then
+  debootstrap=qemu-debootstrap
+fi
 
 # Sometimes it isn't obvious when the script fails
 failure() {
@@ -72,8 +92,8 @@ trap workdir_remove EXIT
 
 # Run the debootstrap first
 cd $workdir
-sudo debootstrap --arch=amd64 --variant=minbase --include=$packages \
-                 $suite . http://ftp.debian.org/debian
+sudo $debootstrap --arch=$arch --variant=minbase --include=$packages \
+                  $suite . $mirror
 # Workarounds for bugs in the debootstrap suite scripts
 for mount in `cat /proc/mounts | cut -d' ' -f2 | grep -e ^$workdir`; do
   echo "Unmounting mountpoint $mount.." >&2
@@ -116,4 +136,4 @@ sudo cp -a $workdir/* $mount
 sudo dd if=/dev/zero of=$mount/sparse bs=1M 2>/dev/null || true
 sudo rm -f $mount/sparse
 
-echo "Debian $suite filesystem generated at '$name'."
+echo "Debian $suite for $arch filesystem generated at '$name'."
