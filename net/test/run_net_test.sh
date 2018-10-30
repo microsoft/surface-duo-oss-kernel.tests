@@ -280,10 +280,10 @@ if [ "$ARCH" == "um" ]; then
   # (which is the amount of hex in a single random UUID) provided to it on
   # the kernel cmdline.
   #
-  # We'll pass in 256 bits just to be safe, ie. a random 64 hex char seed.
-  # We do this by getting *two* random UUIDs and concatenating their hex
-  # digits into an even length hex encoded string.
-  entropy="$(cat /proc/sys/kernel/random{/,/}uuid | tr -d '\n-')"
+  # We'll pass in 384 bits just to be safe, ie. a random 96 hex char seed.
+  # We do this by getting *triple* random UUIDs and concatenating their hex
+  # digits into an *even* length hex encoded string.
+  entropy="$(cat /proc/sys/kernel/random{/,/,/}uuid | tr -d '\n-')"
   cmdline="${cmdline} entropy=${entropy}"
 
   # Map the --readonly flag to UML block device names
