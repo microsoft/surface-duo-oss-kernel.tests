@@ -433,7 +433,7 @@ class NetworkTest(unittest.TestCase):
 
     if protocol.startswith("tcp"):
       # Real sockets have 5 extra numbers, timewait sockets have none.
-      end_regexp = "(| +[0-9]+ [0-9]+ [0-9]+ [0-9]+ -?[0-9]+|)$"
+      end_regexp = "(| +[0-9]+ [0-9]+ [0-9]+ [0-9]+ -?[0-9]+)$"
     elif re.match("icmp|udp|raw", protocol):
       # Drops.
       end_regexp = " +([0-9]+) *$"
@@ -458,8 +458,11 @@ class NetworkTest(unittest.TestCase):
     # TODO: consider returning a dict or namedtuple instead.
     out = []
     for line in lines:
+      m = regexp.match(line)
+      if m is None:
+        raise ValueError("Failed match on [%s]" % line)
       (_, src, dst, state, mem,
-       _, _, uid, _, _, refcnt, _, extra) = regexp.match(line).groups()
+       _, _, uid, _, _, refcnt, _, extra) = m.groups()
       out.append([src, dst, state, mem, uid, refcnt, extra])
     return out
 
