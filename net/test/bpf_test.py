@@ -406,6 +406,7 @@ class BpfCgroupTest(net_test.NetworkTest):
   def checkSocketCreate(self, family, socktype, success):
     try:
       sock = socket.socket(family, socktype, 0)
+      sock.close()
     except socket.error, e:
       if success:
         self.fail("Failed to create socket family=%d type=%d err=%s" %
