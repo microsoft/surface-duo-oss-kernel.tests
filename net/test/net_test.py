@@ -369,17 +369,17 @@ class RunAsUidGid(object):
 
   def __enter__(self):
     if self.uid:
-      self.saved_uid = os.geteuid()
+      self.saved_uids = os.getresuid()
       self.saved_groups = os.getgroups()
       os.setgroups(self.saved_groups + [AID_INET])
-      os.seteuid(self.uid)
+      os.setresuid(self.uid, self.uid, self.saved_uids[0])
     if self.gid:
       self.saved_gid = os.getgid()
       os.setgid(self.gid)
 
   def __exit__(self, unused_type, unused_value, unused_traceback):
     if self.uid:
-      os.seteuid(self.saved_uid)
+      os.setresuid(*self.saved_uids)
       os.setgroups(self.saved_groups)
     if self.gid:
       os.setgid(self.saved_gid)
@@ -389,7 +389,6 @@ class RunAsUid(RunAsUidGid):
 
   def __init__(self, uid):
     RunAsUidGid.__init__(self, uid, 0)
-
 
 class NetworkTest(unittest.TestCase):
 
