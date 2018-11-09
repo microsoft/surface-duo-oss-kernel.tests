@@ -1,4 +1,8 @@
 #!/bin/bash
+# This defaults to 60 which is needlessly long during boot
+# (we will reset it back to the default later)
+echo 0 > /proc/sys/kernel/random/urandom_min_reseed_secs
+
 if [[ -n "${entropy}" ]]; then
   echo "adding entropy from hex string [${entropy}]" 1>&2
 
@@ -6,16 +10,23 @@ if [[ -n "${entropy}" ]]; then
   # _IOW('R', 0x03, int[2]) =(R is 0x52)= 0x40085203 = 1074287107
   /usr/bin/python 3>/dev/random <<EOF
 import fcntl, struct
-rnd = '${entropy}'.decode('hex')
+rnd = '${entropy}'.decode('base64')
 fcntl.ioctl(3, 0x40085203, struct.pack('ii', len(rnd) * 8, len(rnd)) + rnd)
 EOF
 
-  # This is probably not truly required, but let us give the system
-  # just a moment to catch up.  Mostly this just makes sure that
-  # the 'random: crng init done' kernel message has a chance to print
-  # out before we continue...
-  sleep 0.2
 fi
+
+# Make sure the urandom pool has a chance to initialize before we reset
+# the reseed timer back to 60 seconds.  One timer tick should be enough.
+sleep 1.1
+
+# By this point either 'random: crng init done' (newer kernels)
+# or 'random: nonblocking pool is initialized' (older kernels)
+# should have been printed out to dmesg/console.
+
+# Reset it back to boot time default
+echo 60 > /proc/sys/kernel/random/urandom_min_reseed_secs
+
 
 # In case IPv6 is compiled as a module.
 [ -f /proc/net/if_inet6 ] || insmod $DIR/kernel/net-next/net/ipv6/ipv6.ko
