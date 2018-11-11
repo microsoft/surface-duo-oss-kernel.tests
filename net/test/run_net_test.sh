@@ -228,14 +228,6 @@ if ((nobuild == 0)); then
     # The CC flag is *not* inherited from the environment, so it must be
     # passed in on the command line.
     make_flags="$make_flags CC=$CC"
-    # TODO: Remove this workaround for https://lkml.org/lkml/2018/5/7/534
-    # Needs a change to clang to be merged, an updated toolchain, and
-    # a new __nostackprotector annotation of the affected PARAVIRT
-    # code in the affected kernel branches (android-4.4, android-4.9,
-    # android-4.14). This sidesteps the issue by disabling PARAVIRT.
-    if [ "$CC" == "clang" ]; then
-      DISABLE_OPTIONS="$DISABLE_OPTIONS PARAVIRT"
-    fi
   fi
 
   # If there's no kernel config at all, create one or UML won't work.
@@ -275,15 +267,19 @@ if [ "$ARCH" == "um" ]; then
   # Use UML's /proc/exitcode feature to communicate errors on test failure
   cmdline="$cmdline net_test_exitcode=/proc/exitcode"
 
-  # Experience shows we need at least 128 bits of entropy for the kernel's
-  # crng init to complete, hence net_test.sh needs at least 32 hex chars
-  # (which is the amount of hex in a single random UUID) provided to it on
-  # the kernel cmdline.
+  # Experience shows that we need at least 128 bits of entropy for the
+  # kernel's crng init to complete (before it fully initializes stuff behaves
+  # *weirdly* and there's plenty of kernel warnings and some tests even fail),
+  # hence net_test.sh needs at least 32 hex chars (which is the amount of hex
+  # in a single random UUID) provided to it on the kernel cmdline.
   #
-  # We'll pass in 384 bits just to be safe, ie. a random 96 hex char seed.
-  # We do this by getting *triple* random UUIDs and concatenating their hex
-  # digits into an *even* length hex encoded string.
+  # Just to be safe, we'll pass in 384 bits, and we'll do this as a random
+  # 64 character base64 seed (because this is shorter than base16).
+  # We do this by getting *three* random UUIDs and concatenating their hex
+  # digits into an *even* length hex encoded string, which we then convert
+  # into base64.
   entropy="$(cat /proc/sys/kernel/random{/,/,/}uuid | tr -d '\n-')"
+  entropy="$(xxd -r -p <<< "${entropy}" | base64 -w 0)"
   cmdline="${cmdline} entropy=${entropy}"
 
   # Map the --readonly flag to UML block device names
