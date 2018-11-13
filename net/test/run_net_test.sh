@@ -69,7 +69,7 @@ DISABLE_OPTIONS="$DISABLE_OPTIONS SYSVIPC"
 NUMTAPINTERFACES=0
 
 # The root filesystem disk image we'll use.
-ROOTFS=net_test.rootfs.20150203
+ROOTFS=${ROOTFS:-net_test.rootfs.20150203}
 COMPRESSED_ROOTFS=$ROOTFS.xz
 URL=https://dl.google.com/dl/android/$COMPRESSED_ROOTFS
 
@@ -300,6 +300,7 @@ else
     -kernel $KERNEL_BINARY \
     -no-user-config -nodefaults -no-reboot -display none \
     -machine pc,accel=kvm -cpu host -smp 4,sockets=4,cores=1,threads=1 \
+    -device virtio-rng-pci \
     -chardev file,id=exitcode,path=exitcode \
     -device isa-serial,chardev=exitcode \
     -fsdev local,security_model=mapped-xattr,id=fsdev0,fmode=0644,dmode=0755,path=$SCRIPT_DIR \
