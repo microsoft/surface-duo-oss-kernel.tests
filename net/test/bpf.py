@@ -152,6 +152,7 @@ BPF_FUNC_unspec = 0
 BPF_FUNC_map_lookup_elem = 1
 BPF_FUNC_map_update_elem = 2
 BPF_FUNC_map_delete_elem = 3
+BPF_FUNC_get_current_uid_gid = 15
 BPF_FUNC_get_socket_cookie = 46
 BPF_FUNC_get_socket_uid = 47
 
