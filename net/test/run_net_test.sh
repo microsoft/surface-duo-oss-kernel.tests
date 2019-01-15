@@ -1,5 +1,16 @@
 #!/bin/bash
 
+# Builds mysteriously fail if stdout is non-blocking.
+fixup_ptys() {
+  python << 'EOF'
+import fcntl, os, sys
+fd = sys.stdout.fileno()
+flags = fcntl.fcntl(fd, fcntl.F_GETFL)
+flags &= ~(fcntl.FASYNC | os.O_NONBLOCK | os.O_APPEND)
+fcntl.fcntl(fd, fcntl.F_SETFL, flags)
+EOF
+}
+
 # Common kernel options
 OPTIONS=" DEBUG_SPINLOCK DEBUG_ATOMIC_SLEEP DEBUG_MUTEXES DEBUG_RT_MUTEXES"
 OPTIONS="$OPTIONS DEVTMPFS DEVTMPFS_MOUNT FHANDLE"
@@ -46,6 +57,7 @@ OPTIONS="$OPTIONS BLK_DEV_UBD HOSTFS"
 
 # QEMU specific options
 OPTIONS="$OPTIONS VIRTIO VIRTIO_PCI VIRTIO_BLK NET_9P NET_9P_VIRTIO 9P_FS"
+OPTIONS="$OPTIONS SERIAL_8250 SERIAL_8250_PCI"
 
 # Obsolete options present at some time in Android kernels
 OPTIONS="$OPTIONS IP_NF_TARGET_REJECT_SKERR IP6_NF_TARGET_REJECT_SKERR"
@@ -69,7 +81,7 @@ DISABLE_OPTIONS="$DISABLE_OPTIONS SYSVIPC"
 NUMTAPINTERFACES=0
 
 # The root filesystem disk image we'll use.
-ROOTFS=net_test.rootfs.20150203
+ROOTFS=${ROOTFS:-net_test.rootfs.20150203}
 COMPRESSED_ROOTFS=$ROOTFS.xz
 URL=https://dl.google.com/dl/android/$COMPRESSED_ROOTFS
 
@@ -89,23 +101,38 @@ consolemode=
 netconfig=
 testmode=
 cmdline=
-nowrite=0
+nowrite=1
 nobuild=0
 norun=0
 
-while [ -n "$1" ]; do
-  if [ "$1" = "--builder" ]; then
+if tty >/dev/null; then
+  verbose=
+else
+  verbose=1
+fi
+
+while [[ -n "$1" ]]; do
+  if [[ "$1" == "--builder" ]]; then
     consolemode="con=null,fd:1"
     testmode=builder
     shift
-  elif [ "$1" == "--readonly" ]; then
+  elif [[ "$1" == "--readwrite" || "$1" == "--rw" ]]; then
+    nowrite=0
+    shift
+  elif [[ "$1" == "--readonly" ||  "$1" == "--ro" ]]; then
     nowrite=1
     shift
-  elif [ "$1" == "--nobuild" ]; then
+  elif [[ "$1" == "--nobuild" ]]; then
     nobuild=1
     shift
-  elif [ "$1" == "--norun" ]; then
+  elif [[ "$1" == "--norun" ]]; then
     norun=1
+    shift
+  elif [[ "$1" == "--verbose" ]]; then
+    verbose=1
+    shift
+  elif [[ "$1" == "--noverbose" ]]; then
+    verbose=
     shift
   else
     test=$1
@@ -138,7 +165,7 @@ function isBuildOnly() {
 
 if ! isRunningTest && ! isBuildOnly; then
   echo "Usage:" >&2
-  echo "  $0 [--builder] [--readonly] [--nobuild] <test>" >&2
+  echo "  $0 [--builder] [--readonly|--ro|--readwrite|--rw] [--nobuild] [--verbose] <test>" >&2
   echo "  $0 --norun" >&2
   exit 1
 fi
@@ -195,9 +222,10 @@ else
   # Set default KERNEL_BINARY location if it was not provided.
   if [ "$ARCH" == "um" ]; then
     KERNEL_BINARY=./linux
-  else
-    # Assume x86_64 bzImage for now
+  elif [ "$ARCH" == "i386" -o "$ARCH" == "x86_64" -o "$ARCH" == "x86" ]; then
     KERNEL_BINARY=./arch/x86/boot/bzImage
+  elif [ "$ARCH" == "arm64" ]; then
+    KERNEL_BINARY=./arch/arm64/boot/Image.gz
   fi
 fi
 
@@ -212,14 +240,6 @@ if ((nobuild == 0)); then
     # The CC flag is *not* inherited from the environment, so it must be
     # passed in on the command line.
     make_flags="$make_flags CC=$CC"
-    # TODO: Remove this workaround for https://lkml.org/lkml/2018/5/7/534
-    # Needs a change to clang to be merged, an updated toolchain, and
-    # a new __nostackprotector annotation of the affected PARAVIRT
-    # code in the affected kernel branches (android-4.4, android-4.9,
-    # android-4.14). This sidesteps the issue by disabling PARAVIRT.
-    if [ "$CC" == "clang" ]; then
-      DISABLE_OPTIONS="$DISABLE_OPTIONS PARAVIRT"
-    fi
   fi
 
   # If there's no kernel config at all, create one or UML won't work.
@@ -249,6 +269,11 @@ fi
 if (( nowrite == 1 )); then
   cmdline="ro"
 fi
+
+if (( verbose == 1 )); then
+  cmdline="$cmdline verbose=1"
+fi
+
 cmdline="$cmdline init=/sbin/net_test.sh"
 cmdline="$cmdline net_test_args=\"$test_args\" net_test_mode=$testmode"
 
@@ -259,21 +284,52 @@ if [ "$ARCH" == "um" ]; then
   # Use UML's /proc/exitcode feature to communicate errors on test failure
   cmdline="$cmdline net_test_exitcode=/proc/exitcode"
 
+  # Experience shows that we need at least 128 bits of entropy for the
+  # kernel's crng init to complete (before it fully initializes stuff behaves
+  # *weirdly* and there's plenty of kernel warnings and some tests even fail),
+  # hence net_test.sh needs at least 32 hex chars (which is the amount of hex
+  # in a single random UUID) provided to it on the kernel cmdline.
+  #
+  # Just to be safe, we'll pass in 384 bits, and we'll do this as a random
+  # 64 character base64 seed (because this is shorter than base16).
+  # We do this by getting *three* random UUIDs and concatenating their hex
+  # digits into an *even* length hex encoded string, which we then convert
+  # into base64.
+  entropy="$(cat /proc/sys/kernel/random{/,/,/}uuid | tr -d '\n-')"
+  entropy="$(xxd -r -p <<< "${entropy}" | base64 -w 0)"
+  cmdline="${cmdline} entropy=${entropy}"
+
   # Map the --readonly flag to UML block device names
   if ((nowrite == 0)); then
     blockdevice=ubda
   else
-    blockdevice="${blockdevice}r"
+    blockdevice=ubdar
   fi
 
-  exec $KERNEL_BINARY >&2 umid=net_test mem=512M \
+  $KERNEL_BINARY >&2 umid=net_test mem=512M \
     $blockdevice=$SCRIPT_DIR/$ROOTFS $netconfig $consolemode $cmdline
+  exitcode=$?
 else
   # We boot into the filesystem image directly in all cases
   cmdline="$cmdline root=/dev/vda"
 
   # The path is stripped by the 9p export; we don't need SCRIPT_DIR
   cmdline="$cmdline net_test=/host/$test"
+
+  # Map the --readonly flag to a QEMU block device flag
+  if ((nowrite > 0)); then
+    blockdevice=",readonly"
+  else
+    blockdevice=
+  fi
+  blockdevice="-drive file=$SCRIPT_DIR/$ROOTFS,format=raw,if=none,id=drive-virtio-disk0$blockdevice"
+  blockdevice="$blockdevice -device virtio-blk-pci,drive=drive-virtio-disk0"
+
+  # Pass through our current console/screen size to inner shell session
+  read rows cols < <(stty size 2>/dev/null)
+  [[ -z "${rows}" ]] || cmdline="${cmdline} console_rows=${rows}"
+  [[ -z "${cols}" ]] || cmdline="${cmdline} console_cols=${cols}"
+  unset rows cols
 
   # QEMU has no way to modify its exitcode; simulate it with a serial port.
   #
@@ -282,30 +338,42 @@ else
   # host filesystem (which is normally not written to) and it allows us to
   # communicate an exit code back in cases we do not have /host mounted.
   #
-  # The assignment of 'ttyS1' here is magical -- we know 'ttyS0' will be our
-  # serial port from the hard-coded '-serial stdio' flag below, and so this
-  # second serial port will be 'ttyS1'.
-  cmdline="$cmdline net_test_exitcode=/dev/ttyS1"
+  if [ "$ARCH" == "i386" -o "$ARCH" == "x86_64" -o "$ARCH" == "x86" ]; then
+    # Assume we have hardware-accelerated virtualization support for amd64
+    qemu="qemu-system-x86_64 -machine pc,accel=kvm -cpu host"
 
-  # Map the --readonly flag to a QEMU block device flag
-  blockdevice=
-  if ((nowrite > 0)); then
-    blockdevice=",readonly"
+    # The assignment of 'ttyS1' here is magical -- we know 'ttyS0' will be our
+    # serial port from the hard-coded '-serial stdio' flag below, and so this
+    # second serial port will be 'ttyS1'.
+    cmdline="$cmdline net_test_exitcode=/dev/ttyS1"
+  elif [ "$ARCH" == "arm64" ]; then
+    # This uses a software model CPU, based on cortex-a57
+    qemu="qemu-system-aarch64 -machine virt -cpu cortex-a57"
+
+    # The kernel will print messages via a virtual ARM serial port (ttyAMA0),
+    # but for command line consistency with x86, we put the exitcode serial
+    # port on the PCI bus, and it will be the only one.
+    cmdline="$cmdline net_test_exitcode=/dev/ttyS0"
   fi
-  blockdevice="-drive file=$SCRIPT_DIR/$ROOTFS,format=raw,if=none,id=drive-virtio-disk0$blockdevice"
-  blockdevice="$blockdevice -device virtio-blk-pci,drive=drive-virtio-disk0"
 
-  # Assume x86_64 PC emulation for now
-  qemu-system-x86_64 >&2 -name net_test -m 512 \
+  $qemu >&2 -name net_test -m 512 \
     -kernel $KERNEL_BINARY \
-    -no-user-config -nodefaults -no-reboot -display none \
-    -machine pc,accel=kvm -cpu host -smp 4,sockets=4,cores=1,threads=1 \
+    -no-user-config -nodefaults -no-reboot \
+    -display none -nographic -serial mon:stdio -parallel none \
+    -smp 4,sockets=4,cores=1,threads=1 \
+    -device virtio-rng-pci \
     -chardev file,id=exitcode,path=exitcode \
-    -device isa-serial,chardev=exitcode \
+    -device pci-serial,chardev=exitcode \
     -fsdev local,security_model=mapped-xattr,id=fsdev0,fmode=0644,dmode=0755,path=$SCRIPT_DIR \
     -device virtio-9p-pci,id=fs0,fsdev=fsdev0,mount_tag=host \
-    $blockdevice $netconfig -serial stdio -append "$cmdline"
-  [ -s exitcode ] && exitcode=`cat exitcode | tr -d '\r'` || exitcode=1
+    $blockdevice $netconfig -append "$cmdline"
+  [[ -s exitcode ]] && exitcode=`cat exitcode | tr -d '\r'` || exitcode=1
   rm -f exitcode
-  exit $exitcode
 fi
+
+# UML reliably screws up the ptys, QEMU probably can as well...
+fixup_ptys
+stty sane || :
+
+echo "Returning exit code ${exitcode}." 1>&2
+exit "${exitcode}"
