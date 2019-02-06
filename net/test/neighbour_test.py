@@ -17,12 +17,12 @@
 import errno
 import random
 from socket import *  # pylint: disable=wildcard-import
-import subprocess
 import time
 import unittest
 
 from scapy import all as scapy
 
+import csocket
 import multinetwork_base
 import net_test
 
@@ -87,14 +87,14 @@ class NeighbourTest(multinetwork_base.MultiNetworkBaseTest):
     self.netid = random.choice(self.tuns.keys())
     self.ifindex = self.ifindices[self.netid]
 
-  def GetNeighbour(self, addr):
-    version = 6 if ":" in addr else 4
-    for msg, args in self.iproute.DumpNeighbours(version):
+  def GetNeighbour(self, addr, ifindex):
+    version = csocket.AddressVersion(addr)
+    for msg, args in self.iproute.DumpNeighbours(version, ifindex):
       if args["NDA_DST"] == addr:
         return msg, args
 
   def GetNdEntry(self, addr):
-    return self.GetNeighbour(addr)
+    return self.GetNeighbour(addr, self.ifindex)
 
   def CheckNoNdEvents(self):
     self.assertRaisesErrno(errno.EAGAIN, self.sock.recvfrom, 4096, MSG_PEEK)
@@ -115,7 +115,7 @@ class NeighbourTest(multinetwork_base.MultiNetworkBaseTest):
         self.assertEquals(attrs[name], actual_attrs[name])
 
   def ExpectProbe(self, is_unicast, addr):
-    version = 6 if ":" in addr else 4
+    version = csocket.AddressVersion(addr)
     if version == 6:
       llsrc = self.MyMacAddress(self.netid)
       if is_unicast:
@@ -144,7 +144,7 @@ class NeighbourTest(multinetwork_base.MultiNetworkBaseTest):
 
   def ReceiveUnicastAdvertisement(self, addr, mac, srcaddr=None, dstaddr=None,
                                   S=1, O=0, R=1):
-    version = 6 if ":" in addr else 4
+    version = csocket.AddressVersion(addr)
     if srcaddr is None:
       srcaddr = addr
     if dstaddr is None:

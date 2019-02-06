@@ -28,9 +28,6 @@ import cstruct
 import net_test
 import netlink
 
-### Base netlink constants. See include/uapi/linux/netlink.h.
-NETLINK_SOCK_DIAG = 4
-
 ### sock_diag constants. See include/uapi/linux/sock_diag.h.
 # Message types.
 SOCK_DIAG_BY_FAMILY = 20
@@ -112,8 +109,10 @@ ALL_NON_TIME_WAIT = 0xffffffff & ~(1 << TCP_TIME_WAIT)
 
 class SockDiag(netlink.NetlinkSocket):
 
-  FAMILY = NETLINK_SOCK_DIAG
   NL_DEBUG = []
+
+  def __init__(self):
+    super(SockDiag, self).__init__(netlink.NETLINK_SOCK_DIAG)
 
   def _Decode(self, command, msg, nla_type, nla_data):
     """Decodes netlink attributes to Python types."""
@@ -374,6 +373,11 @@ class SockDiag(netlink.NetlinkSocket):
     dst = SockDiag.PaddedAddress(dst)
     sock_id = InetDiagSockId((sport, dport, src, dst, iface, "\x00" * 8))
     return InetDiagReqV2((family, protocol, 0, 0xffffffff, sock_id))
+
+  @staticmethod
+  def GetSocketCookie(s):
+    cookie = s.getsockopt(net_test.SOL_SOCKET, net_test.SO_COOKIE, 8)
+    return struct.unpack("=Q", cookie)[0]
 
   def FindSockInfoFromFd(self, s):
     """Gets a diag_msg and attrs from the kernel for the specified socket."""

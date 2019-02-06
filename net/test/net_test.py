@@ -14,7 +14,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import errno
 import fcntl
 import os
 import random
@@ -41,6 +40,7 @@ SO_BINDTODEVICE = 25
 SO_MARK = 36
 SO_PROTOCOL = 38
 SO_DOMAIN = 39
+SO_COOKIE = 57
 
 ETH_P_IP = 0x0800
 ETH_P_IPV6 = 0x86dd
@@ -66,13 +66,17 @@ IPV4_PING = "\x08\x00\x00\x00\x0a\xce\x00\x03"
 IPV6_PING = "\x80\x00\x00\x00\x0a\xce\x00\x03"
 
 IPV4_ADDR = "8.8.8.8"
+IPV4_ADDR2 = "8.8.4.4"
 IPV6_ADDR = "2001:4860:4860::8888"
+IPV6_ADDR2 = "2001:4860:4860::8844"
 
 IPV6_SEQ_DGRAM_HEADER = ("  sl  "
                          "local_address                         "
                          "remote_address                        "
                          "st tx_queue rx_queue tr tm->when retrnsmt"
                          "   uid  timeout inode ref pointer drops\n")
+
+UDP_HDR_LEN = 8
 
 # Arbitrary packet payload.
 UDP_PAYLOAD = str(scapy.DNS(rd=1,
@@ -89,11 +93,25 @@ KERN_INFO = 6
 LINUX_VERSION = csocket.LinuxVersion()
 
 
-def SetSocketTimeout(sock, ms):
-  s = ms / 1000
-  us = (ms % 1000) * 1000
-  sock.setsockopt(SOL_SOCKET, SO_RCVTIMEO, struct.pack("LL", s, us))
+def GetWildcardAddress(version):
+  return {4: "0.0.0.0", 6: "::"}[version]
 
+def GetIpHdrLength(version):
+  return {4: 20, 6: 40}[version]
+
+def GetAddressFamily(version):
+  return {4: AF_INET, 5: AF_INET6, 6: AF_INET6}[version]
+
+
+def AddressLengthBits(version):
+  return {4: 32, 6: 128}[version]
+
+def GetAddressVersion(address):
+  if ":" not in address:
+    return 4
+  if address.startswith("::ffff"):
+    return 5
+  return 6
 
 def SetSocketTos(s, tos):
   level = {AF_INET: SOL_IP, AF_INET6: SOL_IPV6}[s.family]
@@ -109,7 +127,7 @@ def SetNonBlocking(fd):
 # Convenience functions to create sockets.
 def Socket(family, sock_type, protocol):
   s = socket(family, sock_type, protocol)
-  SetSocketTimeout(s, 5000)
+  csocket.SetSocketTimeout(s, 5000)
   return s
 
 
@@ -189,14 +207,14 @@ def CreateSocketPair(family, socktype, addr):
 
 
 def GetInterfaceIndex(ifname):
-  s = IPv4PingSocket()
+  s = UDPSocket(AF_INET)
   ifr = struct.pack("%dsi" % IFNAMSIZ, ifname, 0)
   ifr = fcntl.ioctl(s, scapy.SIOCGIFINDEX, ifr)
   return struct.unpack("%dsi" % IFNAMSIZ, ifr)[1]
 
 
 def SetInterfaceHWAddr(ifname, hwaddr):
-  s = IPv4PingSocket()
+  s = UDPSocket(AF_INET)
   hwaddr = hwaddr.replace(":", "")
   hwaddr = hwaddr.decode("hex")
   if len(hwaddr) != 6:
@@ -206,7 +224,7 @@ def SetInterfaceHWAddr(ifname, hwaddr):
 
 
 def SetInterfaceState(ifname, up):
-  s = IPv4PingSocket()
+  s = UDPSocket(AF_INET)
   ifr = struct.pack("%dsH" % IFNAMSIZ, ifname, 0)
   ifr = fcntl.ioctl(s, scapy.SIOCGIFFLAGS, ifr)
   _, flags = struct.unpack("%dsH" % IFNAMSIZ, ifr)
@@ -322,6 +340,13 @@ def SetFlowLabel(s, addr, label):
   # Caller also needs to do s.setsockopt(SOL_IPV6, IPV6_FLOWINFO_SEND, 1).
 
 
+def RunIptablesCommand(version, args):
+  iptables = {4: "iptables", 6: "ip6tables"}[version]
+  iptables_path = "/sbin/" + iptables
+  if not os.access(iptables_path, os.X_OK):
+    iptables_path = "/system/bin/" + iptables
+  return os.spawnvp(os.P_WAIT, iptables_path, [iptables_path] + args.split(" "))
+
 # Determine network configuration.
 try:
   GetDefaultRoute(version=4)
@@ -335,36 +360,59 @@ try:
 except ValueError:
   HAVE_IPV6 = False
 
-
-CONTINUOUS_BUILD = re.search("net_test_mode=builder",
-                             open("/proc/cmdline").read())
-
-
-class RunAsUid(object):
+class RunAsUidGid(object):
   """Context guard to run a code block as a given UID."""
 
-  def __init__(self, uid):
+  def __init__(self, uid, gid):
     self.uid = uid
+    self.gid = gid
 
   def __enter__(self):
     if self.uid:
-      self.saved_uid = os.geteuid()
+      self.saved_uids = os.getresuid()
       self.saved_groups = os.getgroups()
-      if self.uid:
-        os.setgroups(self.saved_groups + [AID_INET])
-        os.seteuid(self.uid)
+      os.setgroups(self.saved_groups + [AID_INET])
+      os.setresuid(self.uid, self.uid, self.saved_uids[0])
+    if self.gid:
+      self.saved_gid = os.getgid()
+      os.setgid(self.gid)
 
   def __exit__(self, unused_type, unused_value, unused_traceback):
     if self.uid:
-      os.seteuid(self.saved_uid)
+      os.setresuid(*self.saved_uids)
       os.setgroups(self.saved_groups)
+    if self.gid:
+      os.setgid(self.saved_gid)
 
+class RunAsUid(RunAsUidGid):
+  """Context guard to run a code block as a given GID and UID."""
+
+  def __init__(self, uid):
+    RunAsUidGid.__init__(self, uid, 0)
 
 class NetworkTest(unittest.TestCase):
 
-  def assertRaisesErrno(self, err_num, f, *args):
+  def assertRaisesErrno(self, err_num, f=None, *args):
+    """Test that the system returns an errno error.
+
+    This works similarly to unittest.TestCase.assertRaises. You can call it as
+    an assertion, or use it as a context manager.
+    e.g.
+        self.assertRaisesErrno(errno.ENOENT, do_things, arg1, arg2)
+    or
+        with self.assertRaisesErrno(errno.ENOENT):
+          do_things(arg1, arg2)
+
+    Args:
+      err_num: an errno constant
+      f: (optional) A callable that should result in error
+      *args: arguments passed to f
+    """
     msg = os.strerror(err_num)
-    self.assertRaisesRegexp(EnvironmentError, msg, f, *args)
+    if f is None:
+      return self.assertRaisesRegexp(EnvironmentError, msg)
+    else:
+      self.assertRaisesRegexp(EnvironmentError, msg, f, *args)
 
   def ReadProcNetSocket(self, protocol):
     # Read file.
@@ -384,7 +432,7 @@ class NetworkTest(unittest.TestCase):
 
     if protocol.startswith("tcp"):
       # Real sockets have 5 extra numbers, timewait sockets have none.
-      end_regexp = "(| +[0-9]+ [0-9]+ [0-9]+ [0-9]+ -?[0-9]+|)$"
+      end_regexp = "(| +[0-9]+ [0-9]+ [0-9]+ [0-9]+ -?[0-9]+)$"
     elif re.match("icmp|udp|raw", protocol):
       # Drops.
       end_regexp = " +([0-9]+) *$"
@@ -409,8 +457,11 @@ class NetworkTest(unittest.TestCase):
     # TODO: consider returning a dict or namedtuple instead.
     out = []
     for line in lines:
+      m = regexp.match(line)
+      if m is None:
+        raise ValueError("Failed match on [%s]" % line)
       (_, src, dst, state, mem,
-       _, _, uid, _, _, refcnt, _, extra) = regexp.match(line).groups()
+       _, _, uid, _, _, refcnt, _, extra) = m.groups()
       out.append([src, dst, state, mem, uid, refcnt, extra])
     return out
 

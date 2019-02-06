@@ -17,18 +17,19 @@
 import ctypes
 import ctypes.util
 import os
+import re
 import socket
 import struct
-import sys
 
 import cstruct
+import util
 
 
 # Data structures.
 # These aren't constants, they're classes. So, pylint: disable=invalid-name
 CMsgHdr = cstruct.Struct("cmsghdr", "@Lii", "len level type")
-Iovec = cstruct.Struct("iovec", "@LL", "base len")
-MsgHdr = cstruct.Struct("msghdr", "@LLLLLLi",
+Iovec = cstruct.Struct("iovec", "@PL", "base len")
+MsgHdr = cstruct.Struct("msghdr", "@LLPLPLi",
                         "name namelen iov iovlen control msg_controllen flags")
 SockaddrIn = cstruct.Struct("sockaddr_in", "=HH4sxxxxxxxx", "family port addr")
 SockaddrIn6 = cstruct.Struct("sockaddr_in6", "=HHI16sI",
@@ -75,19 +76,31 @@ SO_ORIGIN_ICMP6 = 3
 libc = ctypes.CDLL(ctypes.util.find_library("c"), use_errno=True)
 
 
-# TODO: Move this to a utils.py or constants.py file, once we have one.
+# TODO: Unlike most of this file, these functions aren't specific to wrapping C
+# library calls. Move them to a utils.py or constants.py file, once we have one.
 def LinuxVersion():
-  # Example: "3.4.67-00753-gb7a556f".
-  # Get the part before the dash.
-  version = os.uname()[2].split("-")[0]
+  # Example: "3.4.67-00753-gb7a556f", "4.4.135+".
+  # Get the prefix consisting of digits and dots.
+  version = re.search("^[0-9.]*", os.uname()[2]).group()
   # Convert it into a tuple such as (3, 4, 67). That allows comparing versions
   # using < and >, since tuples are compared lexicographically.
   version = tuple(int(i) for i in version.split("."))
   return version
 
 
-def PaddedLength(length):
-  return CMSG_ALIGNTO * ((length / CMSG_ALIGNTO) + (length % CMSG_ALIGNTO != 0))
+def AddressVersion(addr):
+  return 6 if ":" in addr else 4
+
+
+def SetSocketTimeout(sock, ms):
+  s = ms / 1000
+  us = (ms % 1000) * 1000
+  sock.setsockopt(socket.SOL_SOCKET, socket.SO_RCVTIMEO,
+                  struct.pack("LL", s, us))
+
+
+def VoidPointer(s):
+  return ctypes.cast(s.CPointer(), ctypes.c_void_p)
 
 
 def MaybeRaiseSocketError(ret):
@@ -140,12 +153,15 @@ def _MakeMsgControl(optlist):
     msg_level, msg_type, data = opt
     if isinstance(data, int):
       data = struct.pack("=I", data)
+    elif isinstance(data, ctypes.c_uint32):
+      data = struct.pack("=I", data.value)
     elif not isinstance(data, str):
-      raise TypeError("unknown data type for opt %i: %s" % (i, type(data)))
+      raise TypeError("unknown data type for opt (%d, %d): %s" % (
+          msg_level, msg_type, type(data)))
 
     datalen = len(data)
     msg_len = len(CMsgHdr) + datalen
-    padding = "\x00" * (PaddedLength(datalen) - datalen)
+    padding = "\x00" * util.GetPadLength(CMSG_ALIGNTO, datalen)
     msg_control += CMsgHdr((msg_len, msg_level, msg_type)).Pack()
     msg_control += data + padding
 
@@ -158,7 +174,8 @@ def _ParseMsgControl(buf):
   while len(buf) > 0:
     cmsghdr, buf = cstruct.Read(buf, CMsgHdr)
     datalen = cmsghdr.len - len(CMsgHdr)
-    data, buf = buf[:datalen], buf[PaddedLength(datalen):]
+    padlen = util.GetPadLength(CMSG_ALIGNTO, datalen)
+    data, buf = buf[:datalen], buf[padlen + datalen:]
 
     if cmsghdr.level == socket.IPPROTO_IP:
       if cmsghdr.type == IP_PKTINFO:
@@ -186,14 +203,14 @@ def _ParseMsgControl(buf):
 
 def Bind(s, to):
   """Python wrapper for bind."""
-  ret = libc.bind(s.fileno(), to.CPointer(), len(to))
+  ret = libc.bind(s.fileno(), VoidPointer(to), len(to))
   MaybeRaiseSocketError(ret)
   return ret
 
 
 def Connect(s, to):
   """Python wrapper for connect."""
-  ret = libc.connect(s.fileno(), to.CPointer(), len(to))
+  ret = libc.connect(s.fileno(), VoidPointer(to), len(to))
   MaybeRaiseSocketError(ret)
   return ret
 
@@ -305,7 +322,7 @@ def Recvmsg(s, buflen, controllen, flags, addrlen=len(SockaddrStorage)):
 
   msghdr = MsgHdr((msg_name, msg_namelen, msg_iov, msg_iovlen,
                    msg_control, msg_controllen, flags))
-  ret = libc.recvmsg(s.fileno(), msghdr.CPointer(), flags)
+  ret = libc.recvmsg(s.fileno(), VoidPointer(msghdr), flags)
   MaybeRaiseSocketError(ret)
 
   data = buf.raw[:ret]
@@ -333,3 +350,24 @@ def Recvfrom(s, size, flags=0):
   addr = _ToSocketAddress(addr.raw, alen)
 
   return data, addr
+
+
+def Setsockopt(s, level, optname, optval, optlen):
+  """Python wrapper for setsockopt.
+
+  Mostly identical to the built-in setsockopt, but allows passing in arbitrary
+  binary blobs, including NULL options, which the built-in python setsockopt does
+  not allow.
+
+  Args:
+    s: The socket object on which to set the option.
+    level: The level parameter.
+    optname: The option to set.
+    optval: A raw byte string, the value to set the option to (None for NULL).
+    optlen: An integer, the length of the option.
+
+  Raises:
+    socket.error: if setsockopt fails.
+  """
+  ret = libc.setsockopt(s.fileno(), level, optname, optval, optlen)
+  MaybeRaiseSocketError(ret)

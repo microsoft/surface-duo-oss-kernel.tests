@@ -15,15 +15,31 @@
 # limitations under the License.
 
 import ctypes
+import os
 
 import csocket
 import cstruct
 import net_test
 import socket
+import platform
 
-# TODO: figure out how to make this arch-dependent if we run these tests
-# on non-X86
-__NR_bpf = 321
+# __NR_bpf syscall numbers for various architectures.
+# NOTE: If python inherited COMPAT_UTS_MACHINE, uname's 'machine' field will
+# return the 32-bit architecture name, even if python itself is 64-bit. To work
+# around this problem and pick the right syscall nr, we can additionally check
+# the bitness of the python interpreter. Assume that the 64-bit architectures
+# are not running with COMPAT_UTS_MACHINE and must be 64-bit at all times.
+# TODO: is there a better way of doing this?
+__NR_bpf = {
+    "aarch64-64bit": 280,
+    "armv7l-32bit": 386,
+    "armv8l-32bit": 386,
+    "armv8l-64bit": 280,
+    "i686-32bit": 357,
+    "i686-64bit": 321,
+    "x86_64-64bit": 321,
+}[os.uname()[4] + "-" + platform.architecture()[0]]
+
 LOG_LEVEL = 1
 LOG_SIZE = 65536
 
@@ -36,6 +52,8 @@ BPF_MAP_GET_NEXT_KEY = 4
 BPF_PROG_LOAD = 5
 BPF_OBJ_PIN = 6
 BPF_OBJ_GET = 7
+BPF_PROG_ATTACH = 8
+BPF_PROG_DETACH = 9
 SO_ATTACH_BPF = 50
 
 # BPF map type constant.
@@ -51,6 +69,16 @@ BPF_PROG_TYPE_SOCKET_FILTER = 1
 BPF_PROG_TYPE_KPROBE = 2
 BPF_PROG_TYPE_SCHED_CLS = 3
 BPF_PROG_TYPE_SCHED_ACT = 4
+BPF_PROG_TYPE_TRACEPOINT = 5
+BPF_PROG_TYPE_XDP = 6
+BPF_PROG_TYPE_PERF_EVENT = 7
+BPF_PROG_TYPE_CGROUP_SKB = 8
+BPF_PROG_TYPE_CGROUP_SOCK = 9
+
+# BPF program attach type.
+BPF_CGROUP_INET_INGRESS = 0
+BPF_CGROUP_INET_EGRESS = 1
+BPF_CGROUP_INET_SOCK_CREATE = 2
 
 # BPF register constant
 BPF_REG_0 = 0
@@ -124,15 +152,25 @@ BPF_FUNC_unspec = 0
 BPF_FUNC_map_lookup_elem = 1
 BPF_FUNC_map_update_elem = 2
 BPF_FUNC_map_delete_elem = 3
+BPF_FUNC_get_current_uid_gid = 15
+BPF_FUNC_get_socket_cookie = 46
+BPF_FUNC_get_socket_uid = 47
 
-# BPF attr struct
-BpfAttrCreate = cstruct.Struct("bpf_attr_create", "=IIII",
-                               "map_type key_size value_size max_entries")
+BPF_F_RDONLY = 1 << 3
+BPF_F_WRONLY = 1 << 4
+
+#  These object below belongs to the same kernel union and the types below
+#  (e.g., bpf_attr_create) aren't kernel struct names but just different
+#  variants of the union.
+BpfAttrCreate = cstruct.Struct("bpf_attr_create", "=IIIII",
+                               "map_type key_size value_size max_entries, map_flags")
 BpfAttrOps = cstruct.Struct("bpf_attr_ops", "=QQQQ",
                             "map_fd key_ptr value_ptr flags")
 BpfAttrProgLoad = cstruct.Struct(
     "bpf_attr_prog_load", "=IIQQIIQI", "prog_type insn_cnt insns"
     " license log_level log_size log_buf kern_version")
+BpfAttrProgAttach = cstruct.Struct(
+    "bpf_attr_prog_attach", "=III", "target_fd attach_bpf_fd attach_type")
 BpfInsn = cstruct.Struct("bpf_insn", "=BBhi", "code dst_src_reg off imm")
 
 libc = ctypes.CDLL(ctypes.util.find_library("c"), use_errno=True)
@@ -140,11 +178,14 @@ HAVE_EBPF_SUPPORT = net_test.LINUX_VERSION >= (4, 4, 0)
 
 
 # BPF program syscalls
-def CreateMap(map_type, key_size, value_size, max_entries):
-  attr = BpfAttrCreate((map_type, key_size, value_size, max_entries))
-  ret = libc.syscall(__NR_bpf, BPF_MAP_CREATE, attr.CPointer(), len(attr))
+def BpfSyscall(op, attr):
+  ret = libc.syscall(__NR_bpf, op, csocket.VoidPointer(attr), len(attr))
   csocket.MaybeRaiseSocketError(ret)
   return ret
+
+def CreateMap(map_type, key_size, value_size, max_entries, map_flags=0):
+  attr = BpfAttrCreate((map_type, key_size, value_size, max_entries, map_flags))
+  return BpfSyscall(BPF_MAP_CREATE, attr)
 
 
 def UpdateMap(map_fd, key, value, flags=0):
@@ -153,9 +194,7 @@ def UpdateMap(map_fd, key, value, flags=0):
   value_ptr = ctypes.addressof(c_value)
   key_ptr = ctypes.addressof(c_key)
   attr = BpfAttrOps((map_fd, key_ptr, value_ptr, flags))
-  ret = libc.syscall(__NR_bpf, BPF_MAP_UPDATE_ELEM,
-                     attr.CPointer(), len(attr))
-  csocket.MaybeRaiseSocketError(ret)
+  BpfSyscall(BPF_MAP_UPDATE_ELEM, attr)
 
 
 def LookupMap(map_fd, key):
@@ -163,47 +202,59 @@ def LookupMap(map_fd, key):
   c_key = ctypes.c_uint32(key)
   attr = BpfAttrOps(
       (map_fd, ctypes.addressof(c_key), ctypes.addressof(c_value), 0))
-  ret = libc.syscall(__NR_bpf, BPF_MAP_LOOKUP_ELEM,
-                     attr.CPointer(), len(attr))
-  csocket.MaybeRaiseSocketError(ret)
+  BpfSyscall(BPF_MAP_LOOKUP_ELEM, attr)
   return c_value
 
 
 def GetNextKey(map_fd, key):
-  c_key = ctypes.c_uint32(key)
+  if key is not None:
+    c_key = ctypes.c_uint32(key)
+    c_next_key = ctypes.c_uint32(0)
+    key_ptr = ctypes.addressof(c_key)
+  else:
+    key_ptr = 0;
   c_next_key = ctypes.c_uint32(0)
   attr = BpfAttrOps(
-      (map_fd, ctypes.addressof(c_key), ctypes.addressof(c_next_key), 0))
-  ret = libc.syscall(__NR_bpf, BPF_MAP_GET_NEXT_KEY,
-                     attr.CPointer(), len(attr))
-  csocket.MaybeRaiseSocketError(ret)
+      (map_fd, key_ptr, ctypes.addressof(c_next_key), 0))
+  BpfSyscall(BPF_MAP_GET_NEXT_KEY, attr)
   return c_next_key
 
+def GetFirstKey(map_fd):
+  return GetNextKey(map_fd, None)
 
 def DeleteMap(map_fd, key):
   c_key = ctypes.c_uint32(key)
   attr = BpfAttrOps((map_fd, ctypes.addressof(c_key), 0, 0))
-  ret = libc.syscall(__NR_bpf, BPF_MAP_DELETE_ELEM,
-                     attr.CPointer(), len(attr))
-  csocket.MaybeRaiseSocketError(ret)
+  BpfSyscall(BPF_MAP_DELETE_ELEM, attr)
 
 
-def BpfProgLoad(prog_type, insn_ptr, prog_len, insn_len):
+def BpfProgLoad(prog_type, instructions):
+  bpf_prog = "".join(instructions)
+  insn_buff = ctypes.create_string_buffer(bpf_prog)
   gpl_license = ctypes.create_string_buffer(b"GPL")
   log_buf = ctypes.create_string_buffer(b"", LOG_SIZE)
-  attr = BpfAttrProgLoad(
-      (prog_type, prog_len / insn_len, insn_ptr, ctypes.addressof(gpl_license),
-       LOG_LEVEL, LOG_SIZE, ctypes.addressof(log_buf), 0))
-  ret = libc.syscall(__NR_bpf, BPF_PROG_LOAD, attr.CPointer(), len(attr))
-  csocket.MaybeRaiseSocketError(ret)
-  return ret
+  attr = BpfAttrProgLoad((prog_type, len(insn_buff) / len(BpfInsn),
+                          ctypes.addressof(insn_buff),
+                          ctypes.addressof(gpl_license), LOG_LEVEL,
+                          LOG_SIZE, ctypes.addressof(log_buf), 0))
+  return BpfSyscall(BPF_PROG_LOAD, attr)
 
-
-def BpfProgAttach(sock_fd, prog_fd):
-  prog_ptr = ctypes.c_uint32(prog_fd)
+# Attach a socket eBPF filter to a target socket
+def BpfProgAttachSocket(sock_fd, prog_fd):
+  uint_fd = ctypes.c_uint32(prog_fd)
   ret = libc.setsockopt(sock_fd, socket.SOL_SOCKET, SO_ATTACH_BPF,
-                        ctypes.addressof(prog_ptr), ctypes.sizeof(prog_ptr))
+                        ctypes.pointer(uint_fd), ctypes.sizeof(uint_fd))
   csocket.MaybeRaiseSocketError(ret)
+
+# Attach a eBPF filter to a cgroup
+def BpfProgAttach(prog_fd, target_fd, prog_type):
+  attr = BpfAttrProgAttach((target_fd, prog_fd, prog_type))
+  return BpfSyscall(BPF_PROG_ATTACH, attr)
+
+# Detach a eBPF filter from a cgroup
+def BpfProgDetach(target_fd, prog_type):
+  attr = BpfAttrProgAttach((target_fd, 0, prog_type))
+  return BpfSyscall(BPF_PROG_DETACH, attr)
 
 
 # BPF program command constructors
@@ -275,22 +326,8 @@ def BpfLoadMapFd(map_fd, dst):
   return insn1.Pack() + insn2.Pack()
 
 
-def BpfFuncLookupMap():
+def BpfFuncCall(func):
   code = BPF_JMP | BPF_CALL
   dst_src = 0
-  ret = BpfInsn((code, dst_src, 0, BPF_FUNC_map_lookup_elem))
-  return ret.Pack()
-
-
-def BpfFuncUpdateMap():
-  code = BPF_JMP | BPF_CALL
-  dst_src = 0
-  ret = BpfInsn((code, dst_src, 0, BPF_FUNC_map_update_elem))
-  return ret.Pack()
-
-
-def BpfFuncDeleteMap():
-  code = BPF_JMP | BPF_CALL
-  dst_src = 0
-  ret = BpfInsn((code, dst_src, 0, BPF_FUNC_map_delete_elem))
+  ret = BpfInsn((code, dst_src, 0, func))
   return ret.Pack()
