@@ -132,6 +132,14 @@ class XfrmFunctionalTest(xfrm_base.XfrmLazyTest):
         EAGAIN,
         s.sendto, net_test.UDP_PAYLOAD, (remotesockaddr, 53))
 
+    # If there is a user space key manager, calling sendto() after applying the socket policy
+    # creates an SA whose state is XFRM_STATE_ACQ. So this just deletes it.
+    # If there is no user space key manager, deleting SA returns ESRCH as the error code.
+    try:
+        self.xfrm.DeleteSaInfo(self.GetRemoteAddress(xfrm_version), TEST_SPI, IPPROTO_ESP)
+    except IOError as e:
+        self.assertEquals(ESRCH, e.errno, "Unexpected error when deleting ACQ SA")
+
     # Adding a matching SA causes the packet to go out encrypted. The SA's
     # SPI must match the one in our template, and the destination address must
     # match the packet's destination address (in tunnel mode, it has to match
@@ -139,6 +147,7 @@ class XfrmFunctionalTest(xfrm_base.XfrmLazyTest):
     self.CreateNewSa(
         net_test.GetWildcardAddress(xfrm_version),
         self.GetRemoteAddress(xfrm_version), TEST_SPI, reqid, None)
+
     s.sendto(net_test.UDP_PAYLOAD, (remotesockaddr, 53))
     expected_length = xfrm_base.GetEspPacketLength(xfrm.XFRM_MODE_TRANSPORT,
                                                 version, False,
@@ -631,14 +640,14 @@ class XfrmFunctionalTest(xfrm_base.XfrmLazyTest):
       self.assertEquals(attributes['XFRMA_TMPL'], tmpl)
 
     # Create a new policy using update.
-    self.xfrm.UpdatePolicyInfo(policy, tmpl1, mark)
+    self.xfrm.UpdatePolicyInfo(policy, tmpl1, mark, None)
     # NEWPOLICY will not update the existing policy. This checks both that
     # UPDPOLICY created a policy and that NEWPOLICY will not perform updates.
     _CheckTemplateMatch(tmpl1)
     with self.assertRaisesErrno(EEXIST):
-      self.xfrm.AddPolicyInfo(policy, tmpl2, mark)
+      self.xfrm.AddPolicyInfo(policy, tmpl2, mark, None)
     # Update the policy using UPDPOLICY.
-    self.xfrm.UpdatePolicyInfo(policy, tmpl2, mark)
+    self.xfrm.UpdatePolicyInfo(policy, tmpl2, mark, None)
     # There should only be one policy after update, and it should have the
     # updated template.
     _CheckTemplateMatch(tmpl2)
