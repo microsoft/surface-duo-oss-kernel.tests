@@ -377,10 +377,10 @@ class XfrmVtiTest(xfrm_base.XfrmBaseTest):
       # underlying network.
       pkt = TunTwister.TwistPacket(pkt)
       self.ReceivePacketOn(vti.underlying_netid, pkt)
-      self.assertReceivedPacket(vti)
       # Receive the decrypted packet on the dest port number.
       read_packet = read_sock.recv(4096)
       self.assertEquals(read_packet, net_test.UDP_PAYLOAD)
+      self.assertReceivedPacket(vti)
     finally:
       # Unwind the switcheroo
       self._SwapInterfaceAddress(vti.iface, new_addr=local, old_addr=remote)
