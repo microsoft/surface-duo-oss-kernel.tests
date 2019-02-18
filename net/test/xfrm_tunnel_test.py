@@ -444,6 +444,11 @@ class XfrmTunnelBase(xfrm_base.XfrmBaseTest):
         cls._SetInboundMarking(netid, iface, True)
         cls._SetupTunnelNetwork(tunnel, True)
 
+        # On slower platforms, the test does not complete before the delay probe time fires.
+        # This causes the test to fail because of the unexpected NUD packet. b/123202162
+        if version == 6:
+          cls.SetSysctl("/proc/sys/net/ipv6/neigh/%s/delay_first_probe_time"
+                        % cls.GetInterfaceName(underlying_netid) , 10)
         if version == 4:
           cls.tunnelsV4[netid] = tunnel
         else:
