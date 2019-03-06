@@ -324,12 +324,13 @@ if [ "$ARCH" == "um" ]; then
     | egrep -q '^CONFIG_LEGACY_VSYSCALL_NONE=y' \
     && ! egrep -q '(^| )vsyscall=(native|emulate)( |$)' /proc/cmdline \
     && {
-      echo '-----=====-----'
-      echo 'If above you saw a "net_test.sh[1]: segfault at ..." followed by'
-      echo '"Kernel panic - not syncing: Attempted to kill init!" then please'
-      echo 'set "vsyscall=emulate" on *host* kernel command line.'
-      echo '(for example via GRUB_CMDLINE_LINUX in /etc/default/grub)'
-      echo '-----=====-----'
+      echo -e "\r"
+      echo -e "-----=====-----\r"
+      echo -e "If above you saw a 'net_test.sh[1]: segfault at ...' followed by\r"
+      echo -e "'Kernel panic - not syncing: Attempted to kill init!' then please\r"
+      echo -e "set 'vsyscall=emulate' on *host* kernel command line.\r"
+      echo -e "(for example via GRUB_CMDLINE_LINUX in /etc/default/grub)\r"
+      echo -e "-----=====-----\r"
     }
   fi
 else
