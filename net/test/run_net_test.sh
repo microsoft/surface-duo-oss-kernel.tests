@@ -306,9 +306,32 @@ if [ "$ARCH" == "um" ]; then
     blockdevice=ubdar
   fi
 
+  exitcode=0
   $KERNEL_BINARY >&2 umid=net_test mem=512M \
-    $blockdevice=$SCRIPT_DIR/$ROOTFS $netconfig $consolemode $cmdline
-  exitcode=$?
+    $blockdevice=$SCRIPT_DIR/$ROOTFS $netconfig $consolemode $cmdline \
+  || exitcode=$?
+
+  # UML is kind of crazy in how guest syscalls work.  It requires host kernel
+  # to not be in vsyscall=none mode.
+  if [[ "${exitcode}" != '0' ]]; then
+    {
+      # Hopefully one of these exists
+      cat /proc/config || :
+      zcat /proc/config.gz || :
+      cat "/boot/config-$(uname -r)" || :
+      zcat "/boot/config-$(uname -r).gz" || :
+    } 2>/dev/null \
+    | egrep -q '^CONFIG_LEGACY_VSYSCALL_NONE=y' \
+    && ! egrep -q '(^| )vsyscall=(native|emulate)( |$)' /proc/cmdline \
+    && {
+      echo '-----=====-----'
+      echo 'If above you saw a "net_test.sh[1]: segfault at ..." followed by'
+      echo '"Kernel panic - not syncing: Attempted to kill init!" then please'
+      echo 'set "vsyscall=emulate" on *host* kernel command line.'
+      echo '(for example via GRUB_CMDLINE_LINUX in /etc/default/grub)'
+      echo '-----=====-----'
+    }
+  fi
 else
   # We boot into the filesystem image directly in all cases
   cmdline="$cmdline root=/dev/vda"
