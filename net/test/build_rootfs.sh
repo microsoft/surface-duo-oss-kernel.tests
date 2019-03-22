@@ -67,7 +67,7 @@ while getopts ":hs:a:m:n:" opt; do
 done
 
 if [[ -z "${name}" ]]; then
-  name=net_test.rootfs.$arch.`date +%Y%m%d`
+  name=net_test.rootfs.${arch}.${suite}.`date +%Y%m%d`
 fi
 
 # Switch to qemu-debootstrap for incompatible architectures
