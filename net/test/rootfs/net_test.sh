@@ -15,6 +15,9 @@
 # limitations under the License.
 #
 
+set -e
+set -u
+
 mount -t proc none /proc
 mount -t sysfs none /sys
 mount -t tmpfs tmpfs /tmp
