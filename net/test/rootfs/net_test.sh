@@ -25,13 +25,13 @@ mount -t tmpfs tmpfs /run
 
 # If this system was booted under UML, it will always have a /proc/exitcode
 # file. If it was booted natively or under QEMU, it will not have this file.
-if [ -e /proc/exitcode ]; then
+if [[ -e /proc/exitcode ]]; then
   mount -t hostfs hostfs /host
 else
   mount -t 9p -o trans=virtio,version=9p2000.L host /host
 fi
 
-test=$(cat /proc/cmdline | sed -re 's/.*net_test=([^ ]*).*/\1/g')
-cd $(dirname $test)
+test="$(sed -r 's/.*net_test=([^ ]*).*/\1/g' < /proc/cmdline)"
+cd "$(dirname "${test}")"
 ./net_test.sh
 poweroff -f
