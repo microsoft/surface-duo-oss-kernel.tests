@@ -40,7 +40,10 @@ while getopts ":hs:a:m:n:" opt; do
         echo "Invalid suite: $OPTARG" >&2
         usage
       fi
-      suite=$OPTARG
+      suite="${OPTARG}"
+      if [[ "${suite}" == wheezy ]]; then
+        mirror=http://archive.debian.org/debian
+      fi
       ;;
     a)
       if [ "$OPTARG" != "amd64" -a "$OPTARG" != "arm64" ]; then
