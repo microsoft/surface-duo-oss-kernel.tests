@@ -23,6 +23,7 @@ OPTIONS="$OPTIONS IP6_NF_IPTABLES IP6_NF_MANGLE IP6_NF_FILTER INET6_IPCOMP"
 OPTIONS="$OPTIONS IPV6_OPTIMISTIC_DAD"
 OPTIONS="$OPTIONS IPV6_ROUTE_INFO IPV6_ROUTER_PREF"
 OPTIONS="$OPTIONS NETFILTER_XT_TARGET_NFLOG"
+OPTIONS="$OPTIONS NETFILTER_XT_MATCH_POLICY"
 OPTIONS="$OPTIONS NETFILTER_XT_MATCH_QUOTA"
 OPTIONS="$OPTIONS NETFILTER_XT_MATCH_QUOTA2"
 OPTIONS="$OPTIONS NETFILTER_XT_MATCH_QUOTA2_LOG"
@@ -324,12 +325,13 @@ if [ "$ARCH" == "um" ]; then
     | egrep -q '^CONFIG_LEGACY_VSYSCALL_NONE=y' \
     && ! egrep -q '(^| )vsyscall=(native|emulate)( |$)' /proc/cmdline \
     && {
-      echo '-----=====-----'
-      echo 'If above you saw a "net_test.sh[1]: segfault at ..." followed by'
-      echo '"Kernel panic - not syncing: Attempted to kill init!" then please'
-      echo 'set "vsyscall=emulate" on *host* kernel command line.'
-      echo '(for example via GRUB_CMDLINE_LINUX in /etc/default/grub)'
-      echo '-----=====-----'
+      echo -e "\r"
+      echo -e "-----=====-----\r"
+      echo -e "If above you saw a 'net_test.sh[1]: segfault at ...' followed by\r"
+      echo -e "'Kernel panic - not syncing: Attempted to kill init!' then please\r"
+      echo -e "set 'vsyscall=emulate' on *host* kernel command line.\r"
+      echo -e "(for example via GRUB_CMDLINE_LINUX in /etc/default/grub)\r"
+      echo -e "-----=====-----\r"
     }
   fi
 else
