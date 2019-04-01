@@ -38,6 +38,7 @@ test_modules = [
     'srcaddr_selection_test',
     'tcp_fastopen_test',
     'tcp_nuke_addr_test',
+    'tcp_repair_test',
     'tcp_test',
     'xfrm_algorithm_test',
     'xfrm_test',
