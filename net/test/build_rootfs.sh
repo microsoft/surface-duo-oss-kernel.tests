@@ -66,7 +66,9 @@ while getopts ":hs:a:m:n:" opt; do
   esac
 done
 
-name=net_test.rootfs.$arch.`date +%Y%m%d`
+if [[ -z "${name}" ]]; then
+  name=net_test.rootfs.${arch}.${suite}.`date +%Y%m%d`
+fi
 
 # Switch to qemu-debootstrap for incompatible architectures
 if [ "$arch" = "arm64" ]; then
