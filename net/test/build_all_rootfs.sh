@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# Copyright (C) 2018 The Android Open Source Project
+# Copyright (C) 2019 The Android Open Source Project
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -16,22 +16,15 @@
 #
 
 set -e
-set -u
 
-mount -t proc none /proc
-mount -t sysfs none /sys
-mount -t tmpfs tmpfs /tmp
-mount -t tmpfs tmpfs /run
+for s in wheezy stretch; do
+  for a in i386 amd64 armhf arm64; do
 
-# If this system was booted under UML, it will always have a /proc/exitcode
-# file. If it was booted natively or under QEMU, it will not have this file.
-if [[ -e /proc/exitcode ]]; then
-  mount -t hostfs hostfs /host
-else
-  mount -t 9p -o trans=virtio,version=9p2000.L host /host
-fi
+    # Debian wheezy does not support arm64 architecture
+    [[ "${s}-${a}" != "wheezy-arm64" ]] || continue
 
-test="$(sed -r 's/.*net_test=([^ ]*).*/\1/g' < /proc/cmdline)"
-cd "$(dirname "${test}")"
-./net_test.sh
-poweroff -f
+    ./build_rootfs.sh -s "${s}" -a "${a}"
+  done
+done
+
+echo 'All rootfs builds completed.'
