@@ -76,7 +76,7 @@ class ForceSocketBufferOptionTest(net_test.NetworkTest):
   def testRcvBufForce(self):
     self.CheckForceSocketBufferOption(SO_RCVBUF, self.SO_RCVBUFFORCE)
 
-  def testRcvBufForce(self):
+  def testSndBufForce(self):
     self.CheckForceSocketBufferOption(SO_SNDBUF, self.SO_SNDBUFFORCE)
 
 
