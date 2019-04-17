@@ -20,7 +20,7 @@ set -e
 SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd -P)
 
 usage() {
-  echo -n "usage: $0 [-h] [-s wheezy|stretch] [-a amd64|arm64] "
+  echo -n "usage: $0 [-h] [-s wheezy|stretch] [-a i386|amd64|armhf|arm64] "
   echo "[-m http://mirror/debian] [-n net_test.rootfs.`date +%Y%m%d`]"
   exit 1
 }
@@ -40,14 +40,21 @@ while getopts ":hs:a:m:n:" opt; do
         echo "Invalid suite: $OPTARG" >&2
         usage
       fi
-      suite=$OPTARG
+      suite="${OPTARG}"
+      if [[ "${suite}" == wheezy ]]; then
+        mirror=http://archive.debian.org/debian
+      fi
       ;;
     a)
-      if [ "$OPTARG" != "amd64" -a "$OPTARG" != "arm64" ]; then
-        echo "Invalid arch: $OPTARG" >&2
-        usage
-      fi
-      arch=$OPTARG
+      case "${OPTARG}" in
+        i386|amd64|armhf|arm64)
+          arch="${OPTARG}"
+          ;;
+        *)
+          echo "Invalid arch: ${OPTARG}" >&2
+          usage
+          ;;
+      esac
       ;;
     m)
       mirror=$OPTARG
@@ -66,7 +73,9 @@ while getopts ":hs:a:m:n:" opt; do
   esac
 done
 
-name=net_test.rootfs.$arch.`date +%Y%m%d`
+if [[ -z "${name}" ]]; then
+  name=net_test.rootfs.${arch}.${suite}.`date +%Y%m%d`
+fi
 
 # Switch to qemu-debootstrap for incompatible architectures
 if [ "$arch" = "arm64" ]; then
