@@ -73,8 +73,9 @@ class TcpRepairTest(multinetwork_base.MultiNetworkBaseTest):
     net_test.DisableFinWait(s)
     self.SelectInterface(s, netid, "mark")
 
-    remoteaddr = self.GetRemoteSocketAddress(version)
-    self.assertRaisesErrno(EINPROGRESS, s.connect, (remoteaddr, TEST_PORT))
+    remotesockaddr = self.GetRemoteSocketAddress(version)
+    remoteaddr = self.GetRemoteAddress(version)
+    self.assertRaisesErrno(EINPROGRESS, s.connect, (remotesockaddr, TEST_PORT))
     self.assertSocketNotConnected(s)
 
     myaddr = self.MyAddress(version, netid)
