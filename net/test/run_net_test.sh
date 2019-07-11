@@ -368,13 +368,20 @@ else
     # Assume we have hardware-accelerated virtualization support for amd64
     qemu="qemu-system-x86_64 -machine pc,accel=kvm -cpu host"
 
-    # The assignment of 'ttyS1' here is magical -- we know 'ttyS0' will be our
-    # serial port from the hard-coded '-serial stdio' flag below, and so this
-    # second serial port will be 'ttyS1'.
+    # We know 'ttyS0' will be our serial port on x86 from the hard-coded
+    # '-serial mon:stdio' flag below
+    cmdline="$cmdline console=ttyS0"
+
+    # The assignment of 'ttyS1' here is magical; we know ttyS0 was used up
+    # by '-serial mon:stdio', and so this second serial port will be 'ttyS1'
     cmdline="$cmdline net_test_exitcode=/dev/ttyS1"
   elif [ "$ARCH" == "arm64" ]; then
     # This uses a software model CPU, based on cortex-a57
     qemu="qemu-system-aarch64 -machine virt -cpu cortex-a57"
+
+    # We know 'ttyAMA0' will be our serial port on arm64 from the hard-coded
+    # '-serial mon:stdio' flag below
+    cmdline="$cmdline console=ttyAMA0"
 
     # The kernel will print messages via a virtual ARM serial port (ttyAMA0),
     # but for command line consistency with x86, we put the exitcode serial
