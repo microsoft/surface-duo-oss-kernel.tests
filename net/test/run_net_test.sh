@@ -89,7 +89,7 @@ URL=https://dl.google.com/dl/android/$COMPRESSED_ROOTFS
 
 # Parse arguments and figure out which test to run.
 ARCH=${ARCH:-um}
-J=${J:-64}
+J=${J:-$(nproc)}
 MAKE="make"
 OUT_DIR=$(readlink -f ${OUT_DIR:-.})
 KERNEL_DIR=$(readlink -f ${KERNEL_DIR:-.})
