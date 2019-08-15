@@ -17,6 +17,15 @@ if [[ -n "${verbose}" ]]; then
   echo
 fi
 
+if [[ "$(tty)" == 'not a tty' ]]; then
+  echo 'not a tty? perhaps not quite real kernel default /dev/console - trying to fix.'
+  if [[ -c /dev/console ]]; then
+    [[ "$(readlink /proc/$$/fd/0)" != '/dev/console' ]] || exec < /dev/console
+    [[ "$(readlink /proc/$$/fd/1)" != '/dev/console' ]] || exec > /dev/console
+    [[ "$(readlink /proc/$$/fd/2)" != '/dev/console' ]] || exec 2> /dev/console
+  fi
+fi
+
 if [[ "$(tty)" == '/dev/console' ]]; then
   ARCH="$(uname -m)"
   # Underscore is illegal in hostname, replace with hyphen
