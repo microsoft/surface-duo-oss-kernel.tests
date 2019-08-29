@@ -408,6 +408,7 @@ fi
 # UML reliably screws up the ptys, QEMU probably can as well...
 fixup_ptys
 stty sane || :
+tput smam || :
 
 echo "Returning exit code ${exitcode}." 1>&2
 exit "${exitcode}"
