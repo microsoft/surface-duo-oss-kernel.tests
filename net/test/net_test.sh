@@ -32,8 +32,8 @@ if [[ "$(tty)" == '/dev/console' ]]; then
   ARCH="${ARCH//_/-}"
 
   # setsid + /dev/tty{,AMA,S}0 allows bash's job control to work, ie. Ctrl+C/Z
-  if [[ -c '/dev/tty0' ]]; then
-    # exists in UML, does not exist on graphics/vga/curses-less QEMU
+  if [[ -e '/proc/exitcode' ]]; then
+    # exists only in UML
     CON='/dev/tty0'
     hostname "uml-${ARCH}"
   elif [[ -c '/dev/ttyAMA0' ]]; then
