@@ -277,7 +277,7 @@ if (( verbose == 1 )); then
   cmdline="$cmdline verbose=1"
 fi
 
-cmdline="$cmdline init=/sbin/net_test.sh"
+cmdline="$cmdline panic=1 init=/sbin/net_test.sh"
 cmdline="$cmdline net_test_args=\"$test_args\" net_test_mode=$testmode"
 
 if [ "$ARCH" == "um" ]; then
