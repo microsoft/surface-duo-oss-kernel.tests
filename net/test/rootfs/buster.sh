@@ -27,17 +27,8 @@ cd /root
 
 # Add the needed debian sources
 cat >/etc/apt/sources.list <<EOF
-deb http://ftp.debian.org/debian stretch main
-deb-src http://ftp.debian.org/debian stretch main
-deb http://ftp.debian.org/debian stretch-backports main
-deb-src http://ftp.debian.org/debian stretch-backports main
 deb http://ftp.debian.org/debian buster main
 deb-src http://ftp.debian.org/debian buster main
-EOF
-
-# Make sure apt doesn't want to install from buster by default
-cat >/etc/apt/apt.conf.d/80default <<EOF
-APT::Default-Release "stretch";
 EOF
 
 # Disable the automatic installation of recommended packages
@@ -45,23 +36,13 @@ cat >/etc/apt/apt.conf.d/90recommends <<EOF
 APT::Install-Recommends "0";
 EOF
 
-# Deprioritize buster, so it must be specified manually
-cat >/etc/apt/preferences.d/90buster <<EOF
-Package: *
-Pin: release a=buster
-Pin-Priority: 90
-EOF
-
 # Update for the above changes
 apt-get update
-
-# Install python-scapy from buster, because stretch's version is broken
-apt-get install -y -t buster python-scapy
 
 # Note what we have installed; we will go back to this
 LANG=C dpkg --get-selections | sort >originally-installed
 
-# Install everything needed from stretch to build iptables
+# Install everything needed from buster to build iptables
 apt-get install -y \
   build-essential \
   autoconf \
@@ -76,9 +57,6 @@ apt-get install -y \
   libnfnetlink-dev \
   libnftnl-dev \
   libtool
-
-# Install newer linux-libc headers (these are from 4.16)
-apt-get install -y -t stretch-backports linux-libc-dev
 
 # We are done with apt; reclaim the disk space
 apt-get clean
@@ -143,7 +121,8 @@ ln -s /lib/systemd/system/serial-getty\@.service \
   /etc/systemd/system/getty.target.wants/serial-getty\@ttyS0.service
 
 # systemd needs some directories to be created
-mkdir -p /var/lib/systemd/coredump /var/lib/systemd/rfkill
+mkdir -p /var/lib/systemd/coredump /var/lib/systemd/rfkill \
+  /var/lib/systemd/timesync
 
 # Finalize and tidy up the created image
 chroot_cleanup
