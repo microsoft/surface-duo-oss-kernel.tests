@@ -41,6 +41,7 @@ OPTIONS="$OPTIONS INET_XFRM_MODE_TUNNEL INET6_ESP"
 OPTIONS="$OPTIONS INET6_XFRM_MODE_TRANSPORT INET6_XFRM_MODE_TUNNEL"
 OPTIONS="$OPTIONS CRYPTO_SHA256 CRYPTO_SHA512 CRYPTO_AES_X86_64 CRYPTO_NULL"
 OPTIONS="$OPTIONS CRYPTO_GCM CRYPTO_ECHAINIV NET_IPVTI"
+OPTIONS="$OPTIONS DUMMY"
 
 # Kernel version specific options
 OPTIONS="$OPTIONS XFRM_INTERFACE"                # Various device kernels
@@ -276,7 +277,7 @@ if (( verbose == 1 )); then
   cmdline="$cmdline verbose=1"
 fi
 
-cmdline="$cmdline init=/sbin/net_test.sh"
+cmdline="$cmdline panic=1 init=/sbin/net_test.sh"
 cmdline="$cmdline net_test_args=\"$test_args\" net_test_mode=$testmode"
 
 if [ "$ARCH" == "um" ]; then
@@ -407,6 +408,7 @@ fi
 # UML reliably screws up the ptys, QEMU probably can as well...
 fixup_ptys
 stty sane || :
+tput smam || :
 
 echo "Returning exit code ${exitcode}." 1>&2
 exit "${exitcode}"
