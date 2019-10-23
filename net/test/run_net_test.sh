@@ -325,13 +325,14 @@ if [ "$ARCH" == "um" ]; then
       zcat "/boot/config-$(uname -r).gz" || :
     } 2>/dev/null \
     | egrep -q '^CONFIG_LEGACY_VSYSCALL_NONE=y' \
-    && ! egrep -q '(^| )vsyscall=(native|emulate)( |$)' /proc/cmdline \
+    && ! egrep -q '(^| )vsyscall=(native|emulate|xonly)( |$)' /proc/cmdline \
     && {
       echo -e "\r"
       echo -e "-----=====-----\r"
       echo -e "If above you saw a 'net_test.sh[1]: segfault at ...' followed by\r"
       echo -e "'Kernel panic - not syncing: Attempted to kill init!' then please\r"
       echo -e "set 'vsyscall=emulate' on *host* kernel command line.\r"
+      echo -e "On Linux 5.2+ you can instead use the slightly safer 'vsyscall=xonly'.\r"
       echo -e "(for example via GRUB_CMDLINE_LINUX in /etc/default/grub)\r"
       echo -e "-----=====-----\r"
     }
