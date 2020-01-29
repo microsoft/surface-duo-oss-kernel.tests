@@ -20,7 +20,7 @@ set -e
 SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd -P)
 
 usage() {
-  echo -n "usage: $0 [-h] [-s wheezy|stretch|buster] [-a i386|amd64|armhf|arm64] "
+  echo -n "usage: $0 [-h] [-s stretch|buster] [-a i386|amd64|armhf|arm64] "
   echo "[-m http://mirror/debian] [-n net_test.rootfs.`date +%Y%m%d`]"
   exit 1
 }
@@ -36,16 +36,12 @@ while getopts ":hs:a:m:n:" opt; do
       usage
       ;;
     s)
-      if [ "$OPTARG" != "wheezy" -a \
-           "$OPTARG" != "stretch" -a \
+      if [ "$OPTARG" != "stretch" -a \
            "$OPTARG" != "buster" ]; then
         echo "Invalid suite: $OPTARG" >&2
         usage
       fi
       suite="${OPTARG}"
-      if [[ "${suite}" == wheezy ]]; then
-        mirror=http://archive.debian.org/debian
-      fi
       ;;
     a)
       case "${OPTARG}" in
