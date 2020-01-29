@@ -280,27 +280,27 @@ fi
 cmdline="$cmdline panic=1 init=/sbin/net_test.sh"
 cmdline="$cmdline net_test_args=\"$test_args\" net_test_mode=$testmode"
 
+# Experience shows that we need at least 128 bits of entropy for the
+# kernel's crng init to complete (before it fully initializes stuff behaves
+# *weirdly* and there's plenty of kernel warnings and some tests even fail),
+# hence net_test.sh needs at least 32 hex chars (which is the amount of hex
+# in a single random UUID) provided to it on the kernel cmdline.
+#
+# Just to be safe, we'll pass in 384 bits, and we'll do this as a random
+# 64 character base64 seed (because this is shorter than base16).
+# We do this by getting *three* random UUIDs and concatenating their hex
+# digits into an *even* length hex encoded string, which we then convert
+# into base64.
+entropy="$(cat /proc/sys/kernel/random{/,/,/}uuid | tr -d '\n-')"
+entropy="$(xxd -r -p <<< "${entropy}" | base64 -w 0)"
+cmdline="${cmdline} entropy=${entropy}"
+
 if [ "$ARCH" == "um" ]; then
   # Get the absolute path to the test file that's being run.
   cmdline="$cmdline net_test=/host$SCRIPT_DIR/$test"
 
   # Use UML's /proc/exitcode feature to communicate errors on test failure
   cmdline="$cmdline net_test_exitcode=/proc/exitcode"
-
-  # Experience shows that we need at least 128 bits of entropy for the
-  # kernel's crng init to complete (before it fully initializes stuff behaves
-  # *weirdly* and there's plenty of kernel warnings and some tests even fail),
-  # hence net_test.sh needs at least 32 hex chars (which is the amount of hex
-  # in a single random UUID) provided to it on the kernel cmdline.
-  #
-  # Just to be safe, we'll pass in 384 bits, and we'll do this as a random
-  # 64 character base64 seed (because this is shorter than base16).
-  # We do this by getting *three* random UUIDs and concatenating their hex
-  # digits into an *even* length hex encoded string, which we then convert
-  # into base64.
-  entropy="$(cat /proc/sys/kernel/random{/,/,/}uuid | tr -d '\n-')"
-  entropy="$(xxd -r -p <<< "${entropy}" | base64 -w 0)"
-  cmdline="${cmdline} entropy=${entropy}"
 
   # Map the --readonly flag to UML block device names
   if ((nowrite == 0)); then
