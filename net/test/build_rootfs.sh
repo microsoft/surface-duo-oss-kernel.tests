@@ -19,6 +19,13 @@ set -e
 
 SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd -P)
 
+# Make sure we're in C locale so build inside chroot does not complain
+# about missing files
+unset LANG LANGUAGE \
+  LC_ADDRESS LC_ALL LC_COLLATE LC_CTYPE LC_IDENTIFICATION LC_MEASUREMENT \
+  LC_MESSAGES LC_MONETARY LC_NAME LC_NUMERIC LC_PAPER LC_TELEPHONE LC_TIME
+export LC_ALL=C
+
 usage() {
   echo -n "usage: $0 [-h] [-s stretch|buster] [-a i386|amd64|armhf|arm64] "
   echo "[-m http://mirror/debian] [-n net_test.rootfs.`date +%Y%m%d`]"
