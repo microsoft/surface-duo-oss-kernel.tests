@@ -132,6 +132,7 @@ else
   verbose=1
 fi
 
+test=all_tests.sh
 while [[ -n "$1" ]]; do
   if [[ "$1" == "--builder" || "$1" == "-b" ]]; then
     consolemode="con=null,fd:1"
