@@ -311,7 +311,7 @@ cmdline="$cmdline net_test_args=\"$test_args\" net_test_mode=$testmode"
 # into base64.
 entropy="$(cat /proc/sys/kernel/random{/,/,/}uuid | tr -d '\n-')"
 entropy="$(xxd -r -p <<< "${entropy}" | base64 -w 0)"
-cmdline="${cmdline} entropy=${entropy}"
+cmdline="${cmdline} random.trust_cpu=on entropy=${entropy}"
 
 if [ "$ARCH" == "um" ]; then
   # Get the absolute path to the test file that's being run.
