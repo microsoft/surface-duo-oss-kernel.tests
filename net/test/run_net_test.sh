@@ -105,6 +105,27 @@ nowrite=1
 nobuild=0
 norun=0
 
+if [[ -z "${DEFCONFIG}" ]]; then
+  case "${ARCH}" in
+    um)
+      export DEFCONFIG=defconfig
+      ;;
+    arm64)
+      if [[ -e arch/arm64/configs/gki_defconfig ]]; then
+        export DEFCONFIG=gki_defconfig
+      elif [[ -e arch/arm64/configs/cuttlefish_defconfig ]]; then
+        export DEFCONFIG=cuttlefish_defconfig
+      fi
+      ;;
+    x86_64)
+      if [[ -e arch/x86/configs/gki_defconfig ]]; then
+        export DEFCONFIG=gki_defconfig
+      elif [[ -e arch/x86/configs/x86_64_cuttlefish_defconfig ]]; then
+        export DEFCONFIG=x86_64_cuttlefish_defconfig
+      fi
+  esac
+fi
+
 if tty >/dev/null; then
   verbose=
 else
@@ -243,7 +264,6 @@ if ((nobuild == 0)); then
   fi
 
   # If there's no kernel config at all, create one or UML won't work.
-  [ -n "$DEFCONFIG" ] || DEFCONFIG=defconfig
   [ -f $CONFIG_FILE ] || (cd $KERNEL_DIR && $MAKE $make_flags $DEFCONFIG)
 
   # Enable the kernel config options listed in $OPTIONS.
