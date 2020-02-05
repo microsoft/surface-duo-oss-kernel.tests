@@ -201,12 +201,15 @@ class OutgoingTest(multinetwork_base.MultiNetworkBaseTest):
       # check that the packets sent on that socket go out on the right network.
       #
       # For connected sockets, routing is cached in the socket's destination
-      # cache entry. In this case, we check that just re-selecting the netid
-      # (except via SO_BINDTODEVICE) does not change routing, but that
-      # subsequently invalidating the destination cache entry does. Arguably
-      # this is a bug in the kernel because re-selecting the netid should cause
-      # routing to change. But it is a convenient way to check that
-      # InvalidateDstCache actually works.
+      # cache entry. In this case, we check that selecting the network a second
+      # time on the same socket (except via SO_BINDTODEVICE, or SO_MARK on 5.0+
+      # kernels) does not change routing, but that subsequently invalidating the
+      # destination cache entry does. This is a bug in the kernel because
+      # re-selecting the netid should cause routing to change, and future
+      # kernels may fix this bug for per-UID routing and ucast_oif routing like
+      # they already have for mark-based routing. But until they do, this
+      # behaviour provides a convenient way to check that InvalidateDstCache
+      # actually works.
       prevnetid = None
       for netid in self.tuns:
         self.SelectInterface(s, netid, mode)
@@ -223,15 +226,33 @@ class OutgoingTest(multinetwork_base.MultiNetworkBaseTest):
             s.sendto(UDP_PAYLOAD, (dstaddr, 53))
           self.ExpectPacketOn(netid, msg, expected)
 
-        if use_connect and mode in ["mark", "uid", "ucast_oif"]:
-          # If we have a destination cache entry, packets are not rerouted...
-          if prevnetid:
+        # Does this socket have a stale dst cache entry that we need to clear?
+        def SocketHasStaleDstCacheEntry():
+          if not prevnetid:
+            # This is the first time we're marking the socket.
+            return False
+          if not use_connect:
+            # Non-connected sockets never have dst cache entries.
+            return False
+          if mode in ["uid", "ucast_oif"]:
+            # No kernel invalidates the dst cache entry if the UID or the
+            # UCAST_OIF socket option changes.
+            return True
+          if mode == "oif":
+            # Changing SO_BINDTODEVICE always invalidates the dst cache entry.
+            return False
+          if mode == "mark":
+            # Changing the mark invalidates the dst cache entry in 5.0+.
+            return net_test.LINUX_VERSION < (5, 0, 0)
+          raise AssertionError("%s must be one of %s" % (mode, modes))
+
+        if SocketHasStaleDstCacheEntry():
             ExpectSendUsesNetid(prevnetid)
             # ... until we invalidate it.
             self.InvalidateDstCache(version, prevnetid)
-          ExpectSendUsesNetid(netid)
-        else:
-          ExpectSendUsesNetid(netid)
+
+        # In any case, future sends must be correct.
+        ExpectSendUsesNetid(netid)
 
         self.SelectInterface(s, None, mode)
         prevnetid = netid
