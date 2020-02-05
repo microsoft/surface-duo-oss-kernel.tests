@@ -133,7 +133,7 @@ else
 fi
 
 while [[ -n "$1" ]]; do
-  if [[ "$1" == "--builder" ]]; then
+  if [[ "$1" == "--builder" || "$1" == "-b" ]]; then
     consolemode="con=null,fd:1"
     testmode=builder
     shift
