@@ -105,14 +105,36 @@ nowrite=1
 nobuild=0
 norun=0
 
+if [[ -z "${DEFCONFIG}" ]]; then
+  case "${ARCH}" in
+    um)
+      export DEFCONFIG=defconfig
+      ;;
+    arm64)
+      if [[ -e arch/arm64/configs/gki_defconfig ]]; then
+        export DEFCONFIG=gki_defconfig
+      elif [[ -e arch/arm64/configs/cuttlefish_defconfig ]]; then
+        export DEFCONFIG=cuttlefish_defconfig
+      fi
+      ;;
+    x86_64)
+      if [[ -e arch/x86/configs/gki_defconfig ]]; then
+        export DEFCONFIG=gki_defconfig
+      elif [[ -e arch/x86/configs/x86_64_cuttlefish_defconfig ]]; then
+        export DEFCONFIG=x86_64_cuttlefish_defconfig
+      fi
+  esac
+fi
+
 if tty >/dev/null; then
   verbose=
 else
   verbose=1
 fi
 
+test=all_tests.sh
 while [[ -n "$1" ]]; do
-  if [[ "$1" == "--builder" ]]; then
+  if [[ "$1" == "--builder" || "$1" == "-b" ]]; then
     consolemode="con=null,fd:1"
     testmode=builder
     shift
@@ -243,7 +265,6 @@ if ((nobuild == 0)); then
   fi
 
   # If there's no kernel config at all, create one or UML won't work.
-  [ -n "$DEFCONFIG" ] || DEFCONFIG=defconfig
   [ -f $CONFIG_FILE ] || (cd $KERNEL_DIR && $MAKE $make_flags $DEFCONFIG)
 
   # Enable the kernel config options listed in $OPTIONS.
@@ -290,7 +311,7 @@ cmdline="$cmdline net_test_args=\"$test_args\" net_test_mode=$testmode"
 # into base64.
 entropy="$(cat /proc/sys/kernel/random{/,/,/}uuid | tr -d '\n-')"
 entropy="$(xxd -r -p <<< "${entropy}" | base64 -w 0)"
-cmdline="${cmdline} entropy=${entropy}"
+cmdline="${cmdline} random.trust_cpu=on entropy=${entropy}"
 
 if [ "$ARCH" == "um" ]; then
   # Get the absolute path to the test file that's being run.
