@@ -62,7 +62,7 @@ apt-get install -y \
 apt-get clean
 
 # Construct the iptables source package to build
-iptables=iptables-1.6.1
+iptables=iptables-1.6.2
 mkdir -p /usr/src/$iptables
 
 cd /usr/src/$iptables
@@ -72,12 +72,16 @@ wget -qO - \
   tar -zxf -
 # Download a compatible 'debian' overlay from Debian salsa
 # We don't want all of the sources, just the Debian modifications
-debian_iptables=1.6.1-2_bpo9+1
+# NOTE: This will only work if Android always uses a version of iptables that exists
+#       for Debian as well.
+debian_iptables=1.6.2-1
 debian_iptables_dir=pkg-iptables-debian-$debian_iptables
 wget -qO - \
   https://salsa.debian.org/pkg-netfilter-team/pkg-iptables/-/archive/debian/$debian_iptables/$debian_iptables_dir.tar.gz | \
   tar --strip-components 1 -zxf - \
   $debian_iptables_dir/debian
+# Work around bug in 1.6.2-1's Debian packaging
+sed -i '/nfnl_osf.8/d' debian/iptables.manpages
 cd -
 
 cd /usr/src
