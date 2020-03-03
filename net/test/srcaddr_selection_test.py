@@ -287,6 +287,7 @@ class DadFailureTest(MultiInterfaceSourceAddressSelectionTest):
                    scapy.ICMPv6ND_NA(tgt=self.test_ip, R=0, S=0, O=1) /
                    scapy.ICMPv6NDOptDstLLAddr(lladdr=conflict_macaddr))
     self.ReceiveEtherPacketOn(self.test_netid, dad_defense)
+    self.WaitForDad(self.test_lladdr)
 
     # The address should have failed DAD, and therefore no longer be usable.
     self.assertAddressNotUsable(self.test_ip, self.test_netid)
