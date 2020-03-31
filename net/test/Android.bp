@@ -26,6 +26,6 @@ python_test {
     name: "vts_kernel_net_tests",
     main: "all_tests.py",
     defaults: ["kernel_net_tests_defaults",],
-    test_suites: ["vts-core",],
+    test_suites: ["vts",],
     auto_gen_config: false,
 }
