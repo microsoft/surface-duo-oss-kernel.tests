@@ -27,8 +27,8 @@ cd /root
 
 # Add the needed debian sources
 cat >/etc/apt/sources.list <<EOF
-deb http://ftp.debian.org/debian buster main
-deb-src http://ftp.debian.org/debian buster main
+deb http://ftp.debian.org/debian bullseye main
+deb-src http://ftp.debian.org/debian bullseye main
 EOF
 
 # Disable the automatic installation of recommended packages
@@ -42,7 +42,7 @@ apt-get update
 # Note what we have installed; we will go back to this
 LANG=C dpkg --get-selections | sort >originally-installed
 
-# Install everything needed from buster to build iptables
+# Install everything needed from bullseye to build iptables
 apt-get install -y \
   build-essential \
   autoconf \
