@@ -27,7 +27,7 @@ unset LANG LANGUAGE \
 export LC_ALL=C
 
 usage() {
-  echo -n "usage: $0 [-h] [-s stretch|buster] [-a i386|amd64|armhf|arm64] "
+  echo -n "usage: $0 [-h] [-s buster] [-a i386|amd64|armhf|arm64] "
   echo "[-m http://mirror/debian] [-n net_test.rootfs.`date +%Y%m%d`]"
   exit 1
 }
@@ -43,8 +43,7 @@ while getopts ":hs:a:m:n:" opt; do
       usage
       ;;
     s)
-      if [ "$OPTARG" != "stretch" -a \
-           "$OPTARG" != "buster" ]; then
+      if [[ "$OPTARG" != "buster" ]]; then
         echo "Invalid suite: $OPTARG" >&2
         usage
       fi
