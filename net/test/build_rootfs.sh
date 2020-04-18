@@ -96,12 +96,18 @@ trap failure ERR
 packages=`cat $SCRIPT_DIR/rootfs/$suite.list | xargs | tr -s ' ' ','`
 
 # For the debootstrap intermediates
-workdir=`mktemp -d`
-workdir_remove() {
+tmpdir=`mktemp -d`
+tmpdir_remove() {
   echo "Removing temporary files.." >&2
-  sudo rm -rf $workdir
+  sudo rm -rf "${tmpdir}"
 }
-trap workdir_remove EXIT
+trap tmpdir_remove EXIT
+
+workdir="${tmpdir}/_"
+
+mkdir "${workdir}"
+chmod 0755 "${workdir}"
+sudo chown root:root "${workdir}"
 
 # Run the debootstrap first
 cd $workdir
@@ -126,7 +132,7 @@ cd -
 mount=`mktemp -d`
 mount_remove() {
  rmdir $mount
- workdir_remove
+ tmpdir_remove
 }
 trap mount_remove EXIT
 
