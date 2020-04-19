@@ -8,6 +8,7 @@ gpgv
 ifupdown
 insserv
 iputils-ping
+iptables
 less
 libnetfilter-conntrack3
 libnfnetlink0
@@ -21,7 +22,7 @@ pciutils
 procps
 psmisc
 python
-python-scapy
+python3-scapy
 strace
 systemd-sysv
 tcpdump
