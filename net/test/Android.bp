@@ -10,7 +10,7 @@ python_defaults {
 }
 
 // Currently, we keep it for vts10. This could be useful to produce a binary
-// that can be run manually on the device. 
+// that can be run manually on the device.
 // TODO(b/146651404): Remove all vts10 only test modules after vts11
 // is released.
 python_test {
@@ -19,13 +19,11 @@ python_test {
     defaults: ["kernel_net_tests_defaults",],
 }
 
-// Create it for KernelNetTest(aosp/1239668)
-// We'll remove KernelNetTest after ExecutableTargetTest(aosp/1249847) is
-// ready. And change the test_config for it.
 python_test {
     name: "vts_kernel_net_tests",
+    stem: "kernel_net_tests_bin",
     main: "all_tests.py",
     defaults: ["kernel_net_tests_defaults",],
     test_suites: ["vts",],
-    auto_gen_config: false,
+    test_config: "vts_kernel_net_tests.xml",
 }
