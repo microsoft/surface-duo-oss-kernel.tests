@@ -890,7 +890,7 @@ class RATest(multinetwork_base.MultiNetworkBaseTest):
 
   def MakePref64Option(self, prefix, lifetime):
     prefix = inet_pton(AF_INET6, prefix)[:12]
-    lft_plc = (lifetime << 3) | 0  # 96-bit prefix length
+    lft_plc = (lifetime & 0xfff8) | 0  # 96-bit prefix length
     return self.Pref64Option((self.ND_OPT_PREF64, 2, lft_plc, prefix))
 
   @unittest.skipUnless(net_test.LINUX_VERSION >= (4, 9, 0), "not backported")
