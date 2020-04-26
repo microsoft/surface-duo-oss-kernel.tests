@@ -17,7 +17,7 @@
 
 set -e
 
-for s in stretch buster; do
+for s in bullseye; do
   for a in i386 amd64 armhf arm64; do
     ./build_rootfs.sh -s "${s}" -a "${a}"
   done
