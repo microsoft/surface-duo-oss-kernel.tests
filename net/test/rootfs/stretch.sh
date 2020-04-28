@@ -89,8 +89,9 @@ mkdir -p /usr/src/$iptables
 
 cd /usr/src/$iptables
 # Download a specific revision of iptables from AOSP
+aosp_iptables=android-wear-p-preview-2
 wget -qO - \
-  https://android.googlesource.com/platform/external/iptables/+archive/master.tar.gz | \
+  https://android.googlesource.com/platform/external/iptables/+archive/$aosp_iptables.tar.gz | \
   tar -zxf -
 # Download a compatible 'debian' overlay from Debian salsa
 # We don't want all of the sources, just the Debian modifications

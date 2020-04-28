@@ -17,7 +17,7 @@
 
 set -e
 
-for s in wheezy stretch buster; do
+for s in wheezy stretch; do
   for a in i386 amd64 armhf arm64; do
 
     # Debian wheezy does not support arm64 architecture

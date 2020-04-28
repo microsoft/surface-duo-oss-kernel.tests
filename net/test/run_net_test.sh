@@ -13,7 +13,6 @@ EOF
 
 # Common kernel options
 OPTIONS=" DEBUG_SPINLOCK DEBUG_ATOMIC_SLEEP DEBUG_MUTEXES DEBUG_RT_MUTEXES"
-OPTIONS="$OPTIONS WARN_ALL_UNSEEDED_RANDOM IKCONFIG IKCONFIG_PROC"
 OPTIONS="$OPTIONS DEVTMPFS DEVTMPFS_MOUNT FHANDLE"
 OPTIONS="$OPTIONS IPV6 IPV6_ROUTER_PREF IPV6_MULTIPLE_TABLES IPV6_ROUTE_INFO"
 OPTIONS="$OPTIONS TUN SYN_COOKIES IP_ADVANCED_ROUTER IP_MULTIPLE_TABLES"
@@ -30,7 +29,7 @@ OPTIONS="$OPTIONS NETFILTER_XT_MATCH_QUOTA2"
 OPTIONS="$OPTIONS NETFILTER_XT_MATCH_QUOTA2_LOG"
 OPTIONS="$OPTIONS NETFILTER_XT_MATCH_SOCKET"
 OPTIONS="$OPTIONS NETFILTER_XT_MATCH_QTAGUID"
-OPTIONS="$OPTIONS INET_DIAG INET_UDP_DIAG INET_DIAG_DESTROY"
+OPTIONS="$OPTIONS INET_UDP_DIAG INET_DIAG_DESTROY"
 OPTIONS="$OPTIONS IP_SCTP"
 OPTIONS="$OPTIONS IP_NF_TARGET_REJECT IP_NF_TARGET_REJECT_SKERR"
 OPTIONS="$OPTIONS IP6_NF_TARGET_REJECT IP6_NF_TARGET_REJECT_SKERR"
@@ -41,7 +40,6 @@ OPTIONS="$OPTIONS INET_XFRM_MODE_TUNNEL INET6_ESP"
 OPTIONS="$OPTIONS INET6_XFRM_MODE_TRANSPORT INET6_XFRM_MODE_TUNNEL"
 OPTIONS="$OPTIONS CRYPTO_SHA256 CRYPTO_SHA512 CRYPTO_AES_X86_64 CRYPTO_NULL"
 OPTIONS="$OPTIONS CRYPTO_GCM CRYPTO_ECHAINIV NET_IPVTI"
-OPTIONS="$OPTIONS DUMMY"
 
 # Kernel version specific options
 OPTIONS="$OPTIONS XFRM_INTERFACE"                # Various device kernels
@@ -59,8 +57,8 @@ OPTIONS="$OPTIONS NETFILTER_TPROXY"              # Removed in 3.11
 OPTIONS="$OPTIONS BLK_DEV_UBD HOSTFS"
 
 # QEMU specific options
-OPTIONS="$OPTIONS PCI VIRTIO VIRTIO_PCI VIRTIO_BLK NET_9P NET_9P_VIRTIO 9P_FS"
-OPTIONS="$OPTIONS CRYPTO_DEV_VIRTIO SERIAL_8250 SERIAL_8250_PCI"
+OPTIONS="$OPTIONS VIRTIO VIRTIO_PCI VIRTIO_BLK NET_9P NET_9P_VIRTIO 9P_FS"
+OPTIONS="$OPTIONS SERIAL_8250 SERIAL_8250_PCI"
 
 # Obsolete options present at some time in Android kernels
 OPTIONS="$OPTIONS IP_NF_TARGET_REJECT_SKERR IP6_NF_TARGET_REJECT_SKERR"
@@ -90,7 +88,7 @@ URL=https://dl.google.com/dl/android/$COMPRESSED_ROOTFS
 
 # Parse arguments and figure out which test to run.
 ARCH=${ARCH:-um}
-J=${J:-$(nproc)}
+J=${J:-64}
 MAKE="make"
 OUT_DIR=$(readlink -f ${OUT_DIR:-.})
 KERNEL_DIR=$(readlink -f ${KERNEL_DIR:-.})
@@ -277,7 +275,7 @@ if (( verbose == 1 )); then
   cmdline="$cmdline verbose=1"
 fi
 
-cmdline="$cmdline panic=1 init=/sbin/net_test.sh"
+cmdline="$cmdline init=/sbin/net_test.sh"
 cmdline="$cmdline net_test_args=\"$test_args\" net_test_mode=$testmode"
 
 if [ "$ARCH" == "um" ]; then
@@ -325,14 +323,13 @@ if [ "$ARCH" == "um" ]; then
       zcat "/boot/config-$(uname -r).gz" || :
     } 2>/dev/null \
     | egrep -q '^CONFIG_LEGACY_VSYSCALL_NONE=y' \
-    && ! egrep -q '(^| )vsyscall=(native|emulate|xonly)( |$)' /proc/cmdline \
+    && ! egrep -q '(^| )vsyscall=(native|emulate)( |$)' /proc/cmdline \
     && {
       echo -e "\r"
       echo -e "-----=====-----\r"
       echo -e "If above you saw a 'net_test.sh[1]: segfault at ...' followed by\r"
       echo -e "'Kernel panic - not syncing: Attempted to kill init!' then please\r"
       echo -e "set 'vsyscall=emulate' on *host* kernel command line.\r"
-      echo -e "On Linux 5.2+ you can instead use the slightly safer 'vsyscall=xonly'.\r"
       echo -e "(for example via GRUB_CMDLINE_LINUX in /etc/default/grub)\r"
       echo -e "-----=====-----\r"
     }
@@ -370,20 +367,13 @@ else
     # Assume we have hardware-accelerated virtualization support for amd64
     qemu="qemu-system-x86_64 -machine pc,accel=kvm -cpu host"
 
-    # We know 'ttyS0' will be our serial port on x86 from the hard-coded
-    # '-serial mon:stdio' flag below
-    cmdline="$cmdline console=ttyS0"
-
-    # The assignment of 'ttyS1' here is magical; we know ttyS0 was used up
-    # by '-serial mon:stdio', and so this second serial port will be 'ttyS1'
+    # The assignment of 'ttyS1' here is magical -- we know 'ttyS0' will be our
+    # serial port from the hard-coded '-serial stdio' flag below, and so this
+    # second serial port will be 'ttyS1'.
     cmdline="$cmdline net_test_exitcode=/dev/ttyS1"
   elif [ "$ARCH" == "arm64" ]; then
     # This uses a software model CPU, based on cortex-a57
     qemu="qemu-system-aarch64 -machine virt -cpu cortex-a57"
-
-    # We know 'ttyAMA0' will be our serial port on arm64 from the hard-coded
-    # '-serial mon:stdio' flag below
-    cmdline="$cmdline console=ttyAMA0"
 
     # The kernel will print messages via a virtual ARM serial port (ttyAMA0),
     # but for command line consistency with x86, we put the exitcode serial
@@ -409,7 +399,6 @@ fi
 # UML reliably screws up the ptys, QEMU probably can as well...
 fixup_ptys
 stty sane || :
-tput smam || :
 
 echo "Returning exit code ${exitcode}." 1>&2
 exit "${exitcode}"
