@@ -14,6 +14,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import cstruct
 import ctypes
 import errno
 import os
@@ -29,6 +30,7 @@ import csocket
 import iproute
 import multinetwork_base
 import net_test
+import netlink
 import packets
 
 # For brevity.
@@ -793,6 +795,11 @@ class RIOTest(multinetwork_base.MultiNetworkBaseTest):
 
 class RATest(multinetwork_base.MultiNetworkBaseTest):
 
+  ND_ROUTER_ADVERT = 134
+  ND_OPT_PREF64 = 38
+  Pref64Option = cstruct.Struct("pref64_option", "!BBH12s",
+                                "type length lft_plc prefix")
+
   def testDoesNotHaveObsoleteSysctl(self):
     self.assertFalse(os.path.isfile(
         "/proc/sys/net/ipv6/route/autoconf_table_offset"))
@@ -875,6 +882,50 @@ class RATest(multinetwork_base.MultiNetworkBaseTest):
       finally:
         del self.tuns[i]
     self.assertLess(num_routes, GetNumRoutes())
+
+  def SendNdUseropt(self, option):
+    options = scapy.ICMPv6NDOptRouteInfo(rtlifetime=rtlifetime, plen=plen,
+                                         prefix=prefix, prf=prf)
+    self.SendRA(self.NETID, options=(options,))
+
+  def MakePref64Option(self, prefix, lifetime):
+    prefix = inet_pton(AF_INET6, prefix)[:12]
+    lft_plc = (lifetime << 3) | 0  # 96-bit prefix length
+    return self.Pref64Option((self.ND_OPT_PREF64, 2, lft_plc, prefix))
+
+  @unittest.skipUnless(net_test.LINUX_VERSION >= (4, 9, 0), "not backported")
+  def testPref64UserOption(self):
+    # Open a netlink socket to receive RTM_NEWNDUSEROPT messages.
+    s = netlink.NetlinkSocket(netlink.NETLINK_ROUTE, iproute.RTMGRP_ND_USEROPT)
+
+    # Send an RA with the PREF64 option.
+    netid = random.choice(self.NETIDS)
+    opt = self.MakePref64Option("64:ff9b::", 300)
+    self.SendRA(netid, options=(opt.Pack(),))
+
+    # Check that we get an an RTM_NEWNDUSEROPT message on the socket with the
+    # expected option.
+    csocket.SetSocketTimeout(s.sock, 100)
+    try:
+      data = s._Recv()
+    except IOError, e:
+      self.fail("Should have received an RTM_NEWNDUSEROPT message. "
+                "Please ensure the kernel supports receiving the "
+                "PREF64 RA option. Error: %s" % e)
+
+    # Check that the message is received correctly.
+    nlmsghdr, data = cstruct.Read(data, netlink.NLMsgHdr)
+    self.assertEquals(iproute.RTM_NEWNDUSEROPT, nlmsghdr.type)
+
+    # Check the option contents.
+    ndopthdr, data = cstruct.Read(data, iproute.NdUseroptMsg)
+    self.assertEquals(AF_INET6, ndopthdr.family)
+    self.assertEquals(self.ND_ROUTER_ADVERT, ndopthdr.icmp_type)
+    self.assertEquals(len(opt), ndopthdr.opts_len)
+
+    actual_opt = self.Pref64Option(data)
+    self.assertEquals(opt, actual_opt)
+
 
 
 class PMTUTest(multinetwork_base.InboundMarkingTest):
