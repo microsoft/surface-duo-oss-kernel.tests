@@ -178,16 +178,17 @@ fi
 test_args=${@:2}
 
 function isRunningTest() {
-  [[ -n "$test" ]] && ! (( norun ))
+  ! (( norun ))
 }
 
 function isBuildOnly() {
-  [[ -z "$test" ]] && (( norun )) && ! (( nobuild ))
+  (( norun )) && ! (( nobuild ))
 }
 
 if ! isRunningTest && ! isBuildOnly; then
   echo "Usage:" >&2
-  echo "  $0 [--builder] [--readonly|--ro|--readwrite|--rw] [--nobuild] [--verbose] <test>" >&2
+  echo "  $0 [--builder] [--readonly|--ro|--readwrite|--rw] [--nobuild] [--verbose] [<test>]" >&2
+  echo "      - if [<test>] is not specified, run all_tests.sh" >&2
   echo "  $0 --norun" >&2
   exit 1
 fi
