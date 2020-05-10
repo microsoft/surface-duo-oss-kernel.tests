@@ -54,7 +54,14 @@ if __name__ == '__main__':
       sys.modules[name].InjectTests()
 
   loader = unittest.defaultTestLoader
-  test_suite = loader.loadTestsFromNames(test_modules)
+  if len(sys.argv) > 1:
+    test_suite = loader.loadTestsFromNames(sys.argv[1:])
+  else:
+    test_suite = loader.loadTestsFromNames(test_modules)
+
+  assert test_suite.countTestCases() > 0, (
+      "Inconceivable: no tests found! Command line: %s" % " ".join(sys.argv))
+
   runner = unittest.TextTestRunner(verbosity=2)
   result = runner.run(test_suite)
   sys.exit(not result.wasSuccessful())
