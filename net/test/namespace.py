@@ -19,8 +19,11 @@
 import ctypes
 import ctypes.util
 import os
+import socket
 
 import net_test
+import sock_diag
+import tcp_test
 
 # //include/linux/fs.h
 MNT_FORCE       = 1         # Attempt to forcibily umount
@@ -146,3 +149,17 @@ def IfPossibleEnterNewNetworkNamespace():
 
   print 'succeeded.'
   return True
+
+
+def HasEstablishedTcpSessionOnPort(port):
+  sd = sock_diag.SockDiag()
+
+  sock_id = sd._EmptyInetDiagSockId()
+  sock_id.sport = port
+
+  states = 1 << tcp_test.TCP_ESTABLISHED
+
+  matches = sd.DumpAllInetSockets(socket.IPPROTO_TCP, "",
+                                  sock_id=sock_id, states=states)
+
+  return len(matches) > 0
