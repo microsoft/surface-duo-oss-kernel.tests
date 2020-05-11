@@ -50,7 +50,7 @@ if __name__ == '__main__':
   # tests in those modules are injected.
   for name in test_modules:
     import_module(name)
-    if hasattr(sys.modules[name], "InjectTests"):
+    if hasattr(sys.modules[name], 'InjectTests'):
       sys.modules[name].InjectTests()
 
   loader = unittest.defaultTestLoader
@@ -60,7 +60,7 @@ if __name__ == '__main__':
     test_suite = loader.loadTestsFromNames(test_modules)
 
   assert test_suite.countTestCases() > 0, (
-      "Inconceivable: no tests found! Command line: %s" % " ".join(sys.argv))
+      'Inconceivable: no tests found! Command line: %s' % ' '.join(sys.argv))
 
   runner = unittest.TextTestRunner(verbosity=2)
   result = runner.run(test_suite)
