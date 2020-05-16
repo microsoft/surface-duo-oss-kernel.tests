@@ -22,6 +22,12 @@ import os
 
 import net_test
 
+# //include/linux/fs.h
+MNT_FORCE       = 1         # Attempt to forcibily umount
+MNT_DETACH      = 2         # Just detach from the tree
+MNT_EXPIRE      = 4         # Mark for expiry
+UMOUNT_NOFOLLOW = 8         # Don't follow symlink on umount
+
 # //include/uapi/linux/fs.h
 MS_RDONLY       = 1         # Mount read-only
 MS_NOSUID       = 2         # Ignore suid and sgid bits
@@ -62,7 +68,7 @@ libc = ctypes.CDLL(ctypes.util.find_library('c'), use_errno=True)
 libc.mount.argtypes = (ctypes.c_char_p, ctypes.c_char_p, ctypes.c_char_p,
                        ctypes.c_ulong, ctypes.c_void_p)
 libc.sethostname.argtype = (ctypes.c_char_p, ctypes.c_size_t)
-libc.umount.argtypes = (ctypes.c_char_p,)
+libc.umount2.argtypes = (ctypes.c_char_p, ctypes.c_int)
 libc.unshare.argtypes = (ctypes.c_int,)
 
 
@@ -75,12 +81,12 @@ def Mount(src, tgt, fs, flags=MS_NODEV|MS_NOEXEC|MS_NOSUID|MS_RELATIME):
 
 
 def ReMountProc():
-  libc.umount('/proc')  # Ignore failure: might not be mounted
+  libc.umount2('/proc', MNT_DETACH)  # Ignore failure: might not be mounted
   Mount('proc', '/proc', 'proc')
 
 
 def ReMountSys():
-  libc.umount('/sys')  # Ignore failure: might not be mounted
+  libc.umount2('/sys', MNT_DETACH)  # Ignore failure: might not be mounted
   Mount('sysfs', '/sys', 'sysfs')
 
 
