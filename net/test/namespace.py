@@ -94,7 +94,7 @@ def SetFileContents(f, s):
   open(f, 'w').write(s)
 
 
-def SetHostName(s):
+def SetHostname(s):
   ret = libc.sethostname(s, len(s))
   if ret < 0:
     errno = ctypes.get_errno()
@@ -135,7 +135,7 @@ def IfPossibleEnterNewNetworkNamespace():
     ReMountProc()
     ReMountSys()
     # DumpMounts('After:')
-    SetHostName('netns')
+    SetHostname('netns')
     SetFileContents('/proc/sys/net/ipv4/ping_group_range', '0 2147483647')
     net_test.SetInterfaceUp('lo')
   except:
