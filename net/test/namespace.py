@@ -132,6 +132,7 @@ def IfPossibleEnterNewNetworkNamespace():
 
   try:
     # DumpMounts('Before:')
+    Mount('none', '/', None, MS_REC|MS_PRIVATE)
     ReMountProc()
     ReMountSys()
     # DumpMounts('After:')
