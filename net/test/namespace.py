@@ -76,7 +76,7 @@ def Mount(src, tgt, fs, flags=MS_NODEV|MS_NOEXEC|MS_NOSUID|MS_RELATIME):
   ret = libc.mount(src, tgt, fs, flags, None)
   if ret < 0:
     errno = ctypes.get_errno()
-    raise OSError(errno, '%s mounting %s on %s (fs=%s flags=%x)'
+    raise OSError(errno, '%s mounting %s on %s (fs=%s flags=0x%x)'
                   % (os.strerror(errno), src, tgt, fs, flags))
 
 
@@ -105,7 +105,7 @@ def UnShare(flags):
   ret = libc.unshare(flags)
   if ret < 0:
     errno = ctypes.get_errno()
-    raise OSError(errno, '%s while unshare(%x)' % (os.strerror(errno), flags))
+    raise OSError(errno, '%s while unshare(0x%x)' % (os.strerror(errno), flags))
 
 
 def DumpMounts(hdr):
