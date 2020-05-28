@@ -19,8 +19,11 @@
 import ctypes
 import ctypes.util
 import os
+import socket
 
 import net_test
+import sock_diag
+import tcp_test
 
 # //include/linux/fs.h
 MNT_FORCE       = 1         # Attempt to forcibily umount
@@ -76,7 +79,7 @@ def Mount(src, tgt, fs, flags=MS_NODEV|MS_NOEXEC|MS_NOSUID|MS_RELATIME):
   ret = libc.mount(src, tgt, fs, flags, None)
   if ret < 0:
     errno = ctypes.get_errno()
-    raise OSError(errno, '%s mounting %s on %s (fs=%s flags=%x)'
+    raise OSError(errno, '%s mounting %s on %s (fs=%s flags=0x%x)'
                   % (os.strerror(errno), src, tgt, fs, flags))
 
 
@@ -105,7 +108,7 @@ def UnShare(flags):
   ret = libc.unshare(flags)
   if ret < 0:
     errno = ctypes.get_errno()
-    raise OSError(errno, '%s while unshare(%x)' % (os.strerror(errno), flags))
+    raise OSError(errno, '%s while unshare(0x%x)' % (os.strerror(errno), flags))
 
 
 def DumpMounts(hdr):
@@ -146,3 +149,17 @@ def IfPossibleEnterNewNetworkNamespace():
 
   print 'succeeded.'
   return True
+
+
+def HasEstablishedTcpSessionOnPort(port):
+  sd = sock_diag.SockDiag()
+
+  sock_id = sd._EmptyInetDiagSockId()
+  sock_id.sport = port
+
+  states = 1 << tcp_test.TCP_ESTABLISHED
+
+  matches = sd.DumpAllInetSockets(socket.IPPROTO_TCP, "",
+                                  sock_id=sock_id, states=states)
+
+  return len(matches) > 0
