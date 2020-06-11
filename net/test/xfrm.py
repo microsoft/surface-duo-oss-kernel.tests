@@ -356,9 +356,9 @@ class Xfrm(netlink.NetlinkSocket):
 
     cmdname = self._GetConstantName(command, "XFRM_MSG_")
     if struct_type:
-      print "%s %s" % (cmdname, str(self._ParseNLMsg(data, struct_type)))
+      print("%s %s" % (cmdname, str(self._ParseNLMsg(data, struct_type))))
     else:
-      print "%s" % cmdname
+      print("%s" % cmdname)
 
   def _Decode(self, command, unused_msg, nla_type, nla_data):
     """Decodes netlink attributes to Python types."""
@@ -710,5 +710,5 @@ class Xfrm(netlink.NetlinkSocket):
 
 if __name__ == "__main__":
   x = Xfrm()
-  print x.DumpSaInfo()
-  print x.DumpPolicyInfo()
+  print(x.DumpSaInfo())
+  print(x.DumpPolicyInfo())
