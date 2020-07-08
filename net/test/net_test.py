@@ -368,14 +368,14 @@ class RunAsUidGid(object):
     self.gid = gid
 
   def __enter__(self):
+    if self.gid:
+      self.saved_gid = os.getgid()
+      os.setgid(self.gid)
     if self.uid:
       self.saved_uids = os.getresuid()
       self.saved_groups = os.getgroups()
       os.setgroups(self.saved_groups + [AID_INET])
       os.setresuid(self.uid, self.uid, self.saved_uids[0])
-    if self.gid:
-      self.saved_gid = os.getgid()
-      os.setgid(self.gid)
 
   def __exit__(self, unused_type, unused_value, unused_traceback):
     if self.uid:
