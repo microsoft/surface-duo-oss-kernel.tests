@@ -76,6 +76,10 @@ class RemovedFeatureTest(net_test.NetworkTest):
     with net_test.RunAsUidGid(12345, AID_NET_RAW):
       self.assertRaisesErrno(errno.EPERM, socket, AF_PACKET, SOCK_RAW, 0)
 
+  @unittest.skipUnless(net_test.LINUX_VERSION >= (4, 19, 0), "exists in 4.14-P")
+  def testRemovedQtaguid(self):
+    self.assertRaisesErrno(errno.ENOENT, open, "/proc/net/xt_qtaguid")
+
 
 if __name__ == "__main__":
   unittest.main()
