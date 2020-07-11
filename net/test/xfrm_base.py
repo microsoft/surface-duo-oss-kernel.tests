@@ -196,7 +196,7 @@ def EncryptPacketWithNull(packet, spi, seq, tun_addrs):
   esplen = (len(inner_layer) + 2)  # UDP length plus Pad Length and Next Header.
   padlen = util.GetPadLength(4, esplen)
   # The pad bytes are consecutive integers starting from 0x01.
-  padding = "".join((chr(i) for i in xrange(1, padlen + 1)))
+  padding = "".join((chr(i) for i in range(1, padlen + 1)))
   trailer = padding + struct.pack("BB", padlen, esp_nexthdr)
 
   # Assemble the packet.
@@ -285,17 +285,17 @@ class XfrmBaseTest(multinetwork_base.MultiNetworkBaseTest):
       scapy.IP/IPv6: the read packet
     """
     packets = self.ReadAllPacketsOn(netid)
-    self.assertEquals(1, len(packets))
+    self.assertEqual(1, len(packets))
     packet = packets[0]
     if length is not None:
-      self.assertEquals(length, len(packet.payload))
+      self.assertEqual(length, len(packet.payload))
     if dst_addr is not None:
-      self.assertEquals(dst_addr, packet.dst)
+      self.assertEqual(dst_addr, packet.dst)
     if src_addr is not None:
-      self.assertEquals(src_addr, packet.src)
+      self.assertEqual(src_addr, packet.src)
     # extract the ESP header
     esp_hdr, _ = cstruct.Read(str(packet.payload), xfrm.EspHdr)
-    self.assertEquals(xfrm.EspHdr((spi, seq)), esp_hdr)
+    self.assertEqual(xfrm.EspHdr((spi, seq)), esp_hdr)
     return packet
 
 
