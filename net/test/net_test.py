@@ -250,7 +250,7 @@ def CanonicalizeIPv6Address(addr):
 
 def FormatProcAddress(unformatted):
   groups = []
-  for i in xrange(0, len(unformatted), 4):
+  for i in range(0, len(unformatted), 4):
     groups.append(unformatted[i:i+4])
   formatted = ":".join(groups)
   # Compress the address.
@@ -265,7 +265,7 @@ def FormatSockStatAddress(address):
     family = AF_INET
   binary = inet_pton(family, address)
   out = ""
-  for i in xrange(0, len(binary), 4):
+  for i in range(0, len(binary), 4):
     out += "%08X" % struct.unpack("=L", binary[i:i+4])
   return out
 

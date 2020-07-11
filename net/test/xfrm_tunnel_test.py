@@ -169,8 +169,8 @@ class XfrmTunnelTest(xfrm_base.XfrmLazyTest):
 
     # Verify that the packet data and src are correct
     data, src = read_sock.recvfrom(4096)
-    self.assertEquals(net_test.UDP_PAYLOAD, data)
-    self.assertEquals((remote_inner, _TEST_REMOTE_PORT), src[:2])
+    self.assertEqual(net_test.UDP_PAYLOAD, data)
+    self.assertEqual((remote_inner, _TEST_REMOTE_PORT), src[:2])
 
   def _TestTunnel(self, inner_version, outer_version, func, direction,
                   test_output_mark_unset):
@@ -233,13 +233,13 @@ class XfrmTunnelTest(xfrm_base.XfrmLazyTest):
 class XfrmAddDeleteVtiTest(xfrm_base.XfrmBaseTest):
   def _VerifyVtiInfoData(self, vti_info_data, version, local_addr, remote_addr,
                          ikey, okey):
-    self.assertEquals(vti_info_data["IFLA_VTI_IKEY"], ikey)
-    self.assertEquals(vti_info_data["IFLA_VTI_OKEY"], okey)
+    self.assertEqual(vti_info_data["IFLA_VTI_IKEY"], ikey)
+    self.assertEqual(vti_info_data["IFLA_VTI_OKEY"], okey)
 
     family = AF_INET if version == 4 else AF_INET6
-    self.assertEquals(inet_ntop(family, vti_info_data["IFLA_VTI_LOCAL"]),
+    self.assertEqual(inet_ntop(family, vti_info_data["IFLA_VTI_LOCAL"]),
                       local_addr)
-    self.assertEquals(inet_ntop(family, vti_info_data["IFLA_VTI_REMOTE"]),
+    self.assertEqual(inet_ntop(family, vti_info_data["IFLA_VTI_REMOTE"]),
                       remote_addr)
 
   def testAddVti(self):
@@ -275,7 +275,7 @@ class XfrmAddDeleteVtiTest(xfrm_base.XfrmBaseTest):
       if_index = self.iproute.GetIfIndex(_TEST_XFRM_IFNAME)
 
       # Validate that the netlink interface matches the ioctl interface.
-      self.assertEquals(net_test.GetInterfaceIndex(_TEST_XFRM_IFNAME), if_index)
+      self.assertEqual(net_test.GetInterfaceIndex(_TEST_XFRM_IFNAME), if_index)
       self.iproute.DeleteLink(_TEST_XFRM_IFNAME)
       with self.assertRaises(IOError):
         self.iproute.GetIfIndex(_TEST_XFRM_IFNAME)
@@ -439,7 +439,7 @@ class XfrmAddDeleteXfrmInterfaceTest(xfrm_base.XfrmBaseTest):
     net_test.SetInterfaceUp(_TEST_XFRM_IFNAME)
 
     # Validate that the netlink interface matches the ioctl interface.
-    self.assertEquals(net_test.GetInterfaceIndex(_TEST_XFRM_IFNAME), if_index)
+    self.assertEqual(net_test.GetInterfaceIndex(_TEST_XFRM_IFNAME), if_index)
     self.iproute.DeleteLink(_TEST_XFRM_IFNAME)
     with self.assertRaises(IOError):
       self.iproute.GetIfIndex(_TEST_XFRM_IFNAME)
@@ -545,7 +545,7 @@ class XfrmTunnelBase(xfrm_base.XfrmBaseTest):
   def tearDownClass(cls):
     # The sysctls are restored by MultinetworkBaseTest.tearDownClass.
     cls.SetInboundMarks(False)
-    for tunnel in cls.tunnelsV4.values() + cls.tunnelsV6.values():
+    for tunnel in list(cls.tunnelsV4.values()) + list(cls.tunnelsV6.values()):
       cls._SetInboundMarking(tunnel.netid, tunnel.iface, False)
       cls._SetupTunnelNetwork(tunnel, False)
       tunnel.Teardown()
@@ -553,7 +553,7 @@ class XfrmTunnelBase(xfrm_base.XfrmBaseTest):
 
   def randomTunnel(self, outer_version):
     version_dict = self.tunnelsV4 if outer_version == 4 else self.tunnelsV6
-    return random.choice(version_dict.values())
+    return random.choice(list(version_dict.values()))
 
   def setUp(self):
     multinetwork_base.MultiNetworkBaseTest.setUp(self)
@@ -636,13 +636,13 @@ class XfrmTunnelBase(xfrm_base.XfrmBaseTest):
 
   def assertReceivedPacket(self, tunnel, sa_info):
     tunnel.rx += 1
-    self.assertEquals((tunnel.rx, tunnel.tx),
+    self.assertEqual((tunnel.rx, tunnel.tx),
                       self.iproute.GetRxTxPackets(tunnel.iface))
     sa_info.seq_num += 1
 
   def assertSentPacket(self, tunnel, sa_info):
     tunnel.tx += 1
-    self.assertEquals((tunnel.rx, tunnel.tx),
+    self.assertEqual((tunnel.rx, tunnel.tx),
                       self.iproute.GetRxTxPackets(tunnel.iface))
     sa_info.seq_num += 1
 
@@ -664,8 +664,8 @@ class XfrmTunnelBase(xfrm_base.XfrmBaseTest):
       # Verify that the packet data and src are correct
       data, src = read_sock.recvfrom(4096)
       self.assertReceivedPacket(tunnel, sa_info)
-      self.assertEquals(net_test.UDP_PAYLOAD, data)
-      self.assertEquals((remote_inner, _TEST_REMOTE_PORT), src[:2])
+      self.assertEqual(net_test.UDP_PAYLOAD, data)
+      self.assertEqual((remote_inner, _TEST_REMOTE_PORT), src[:2])
 
   def _CheckTunnelOutput(self, tunnel, inner_version, local_inner,
                          remote_inner, sa_info=None):
@@ -701,12 +701,12 @@ class XfrmTunnelBase(xfrm_base.XfrmBaseTest):
     # Check outer header manually (Avoids having to overwrite outer header's
     # id, flags or flow label)
     self.assertSentPacket(tunnel, sa_info)
-    self.assertEquals(expected.src, pkt.src)
-    self.assertEquals(expected.dst, pkt.dst)
-    self.assertEquals(len(expected), len(pkt))
+    self.assertEqual(expected.src, pkt.src)
+    self.assertEqual(expected.dst, pkt.dst)
+    self.assertEqual(len(expected), len(pkt))
 
     # Check everything else
-    self.assertEquals(str(expected.payload), str(pkt.payload))
+    self.assertEqual(str(expected.payload), str(pkt.payload))
 
   def _CheckTunnelEncryption(self, tunnel, inner_version, local_inner,
                              remote_inner):
@@ -728,8 +728,8 @@ class XfrmTunnelBase(xfrm_base.XfrmBaseTest):
     self.assertTrue(str(net_test.UDP_PAYLOAD) not in str(pkt))
 
     # Check src/dst
-    self.assertEquals(tunnel.local, pkt.src)
-    self.assertEquals(tunnel.remote, pkt.dst)
+    self.assertEqual(tunnel.local, pkt.src)
+    self.assertEqual(tunnel.remote, pkt.dst)
 
     # Check that the interface statistics recorded the outbound packet
     self.assertSentPacket(tunnel, tunnel.out_sa)
@@ -748,8 +748,8 @@ class XfrmTunnelBase(xfrm_base.XfrmBaseTest):
 
       # Verify that the packet data and src are correct
       data, src = read_sock.recvfrom(4096)
-      self.assertEquals(net_test.UDP_PAYLOAD, data)
-      self.assertEquals((local_inner, src_port), src[:2])
+      self.assertEqual(net_test.UDP_PAYLOAD, data)
+      self.assertEqual((local_inner, src_port), src[:2])
 
       # Check that the interface statistics recorded the inbound packet
       self.assertReceivedPacket(tunnel, tunnel.in_sa)
@@ -784,10 +784,10 @@ class XfrmTunnelBase(xfrm_base.XfrmBaseTest):
 
     # Check that the packet too big reduced the MTU.
     routes = self.iproute.GetRoutes(tunnel.remote, 0, tunnel.underlying_netid, None)
-    self.assertEquals(1, len(routes))
+    self.assertEqual(1, len(routes))
     rtmsg, attributes = routes[0]
-    self.assertEquals(iproute.RTN_UNICAST, rtmsg.type)
-    self.assertEquals(packets.PTB_MTU, attributes["RTA_METRICS"]["RTAX_MTU"])
+    self.assertEqual(iproute.RTN_UNICAST, rtmsg.type)
+    self.assertEqual(packets.PTB_MTU, attributes["RTA_METRICS"]["RTAX_MTU"])
 
     # Clear PMTU information so that future tests don't have to worry about it.
     self.InvalidateDstCache(tunnel.version, tunnel.underlying_netid)
