@@ -159,8 +159,8 @@ class ResilientRouterSolicitationTest(multinetwork_base.MultiNetworkBaseTest):
 
     # Compute minimum and maximum bounds for RFC3315 S14 exponential backoff.
     # First retransmit is linear backoff, subsequent retransmits are exponential
-    min_exp_bound = accumulate(map(lambda i: MIN_LIN * pow(MIN_EXP, i), range(0, len(rsSendTimes))))
-    max_exp_bound = accumulate(map(lambda i: MAX_LIN * pow(MAX_EXP, i), range(0, len(rsSendTimes))))
+    min_exp_bound = accumulate([MIN_LIN * pow(MIN_EXP, i) for i in range(0, len(rsSendTimes))])
+    max_exp_bound = accumulate([MAX_LIN * pow(MAX_EXP, i) for i in range(0, len(rsSendTimes))])
 
     # Assert that each sample falls within the worst case interval. If all samples fit we accept
     # the exponential backoff hypothesis
