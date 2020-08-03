@@ -91,7 +91,7 @@ AID_INET = 3003
 KERN_INFO = 6
 
 LINUX_VERSION = csocket.LinuxVersion()
-
+LINUX_ANY_VERSION = (0, 0)
 
 def GetWildcardAddress(version):
   return {4: "0.0.0.0", 6: "::"}[version]
