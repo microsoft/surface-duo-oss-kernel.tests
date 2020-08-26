@@ -112,10 +112,10 @@ def UnShare(flags):
 
 
 def DumpMounts(hdr):
-  print
-  print hdr
+  print()
+  print(hdr)
   print open('/proc/mounts', 'r').read(),
-  print '---'
+  print('---')
 
 
 # Requires at least kernel configuration options:
@@ -130,7 +130,7 @@ def IfPossibleEnterNewNetworkNamespace():
   try:
     UnShare(CLONE_NEWNS | CLONE_NEWUTS | CLONE_NEWNET)
   except OSError as err:
-    print 'failed: %s (likely: no privs or lack of kernel support).' % err
+    print('failed: %s (likely: no privs or lack of kernel support).' % err)
     return False
 
   try:
@@ -143,11 +143,11 @@ def IfPossibleEnterNewNetworkNamespace():
     SetFileContents('/proc/sys/net/ipv4/ping_group_range', '0 2147483647')
     net_test.SetInterfaceUp('lo')
   except:
-    print 'failed.'
+    print('failed.')
     # We've already transitioned into the new netns -- it's too late to recover.
     raise
 
-  print 'succeeded.'
+  print('succeeded.')
   return True
 
 
