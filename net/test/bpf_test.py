@@ -49,10 +49,10 @@ def PrintMapInfo(map_fd):
     try:
       nextKey = GetNextKey(map_fd, key).value
       value = LookupMap(map_fd, nextKey)
-      print repr(nextKey) + " : " + repr(value.value)
+      print(repr(nextKey) + " : " + repr(value.value))
       key = nextKey
     except:
-      print "no value"
+      print("no value")
       break
 
 
@@ -67,7 +67,7 @@ def SocketUDPLoopBack(packet_count, version, prog_fd):
   sock.bind((addr, 0))
   addr = sock.getsockname()
   sockaddr = csocket.Sockaddr(addr)
-  for i in xrange(packet_count):
+  for i in range(packet_count):
     sock.sendto("foo", addr)
     data, retaddr = csocket.Recvfrom(sock, 4096, 0)
     assert "foo" == data
@@ -170,7 +170,7 @@ class BpfTest(net_test.NetworkTest):
     self.map_fd = CreateMap(BPF_MAP_TYPE_HASH, KEY_SIZE, VALUE_SIZE,
                             TOTAL_ENTRIES)
     UpdateMap(self.map_fd, key, value)
-    self.assertEquals(value, LookupMap(self.map_fd, key).value)
+    self.assertEqual(value, LookupMap(self.map_fd, key).value)
     DeleteMap(self.map_fd, key)
     self.assertRaisesErrno(errno.ENOENT, LookupMap, self.map_fd, key)
 
@@ -185,17 +185,17 @@ class BpfTest(net_test.NetworkTest):
         result = GetNextKey(self.map_fd, key)
         key = result.value
         self.assertGreaterEqual(key, 0)
-        self.assertEquals(value, LookupMap(self.map_fd, key).value)
+        self.assertEqual(value, LookupMap(self.map_fd, key).value)
         count += 1
 
   def testIterateMap(self):
     self.map_fd = CreateMap(BPF_MAP_TYPE_HASH, KEY_SIZE, VALUE_SIZE,
                             TOTAL_ENTRIES)
     value = 1024
-    for key in xrange(0, TOTAL_ENTRIES):
+    for key in range(0, TOTAL_ENTRIES):
       UpdateMap(self.map_fd, key, value)
-    for key in xrange(0, TOTAL_ENTRIES):
-      self.assertEquals(value, LookupMap(self.map_fd, key).value)
+    for key in range(0, TOTAL_ENTRIES):
+      self.assertEqual(value, LookupMap(self.map_fd, key).value)
     self.assertRaisesErrno(errno.ENOENT, LookupMap, self.map_fd, 101)
     nonexistent_key = -1
     self.CheckAllMapEntry(nonexistent_key, TOTAL_ENTRIES, value)
@@ -204,7 +204,7 @@ class BpfTest(net_test.NetworkTest):
     self.map_fd = CreateMap(BPF_MAP_TYPE_HASH, KEY_SIZE, VALUE_SIZE,
                             TOTAL_ENTRIES)
     value = 1024
-    for key in xrange(0, TOTAL_ENTRIES):
+    for key in range(0, TOTAL_ENTRIES):
       UpdateMap(self.map_fd, key, value)
     firstKey = GetFirstKey(self.map_fd)
     key = firstKey.value
@@ -261,7 +261,7 @@ class BpfTest(net_test.NetworkTest):
     packet_count = 10
     SocketUDPLoopBack(packet_count, 4, self.prog_fd)
     SocketUDPLoopBack(packet_count, 6, self.prog_fd)
-    self.assertEquals(packet_count * 2, LookupMap(self.map_fd, key).value)
+    self.assertEqual(packet_count * 2, LookupMap(self.map_fd, key).value)
 
   @unittest.skipUnless(HAVE_EBPF_ACCOUNTING,
                        "BPF helper function is not fully supported")
@@ -282,7 +282,7 @@ class BpfTest(net_test.NetworkTest):
     def PacketCountByCookie(version):
       self.sock = SocketUDPLoopBack(packet_count, version, self.prog_fd)
       cookie = sock_diag.SockDiag.GetSocketCookie(self.sock)
-      self.assertEquals(packet_count, LookupMap(self.map_fd, cookie).value)
+      self.assertEqual(packet_count, LookupMap(self.map_fd, cookie).value)
       self.sock.close()
     PacketCountByCookie(4)
     PacketCountByCookie(6)
@@ -307,10 +307,10 @@ class BpfTest(net_test.NetworkTest):
     with net_test.RunAsUid(uid):
       self.assertRaisesErrno(errno.ENOENT, LookupMap, self.map_fd, uid)
       SocketUDPLoopBack(packet_count, 4, self.prog_fd)
-      self.assertEquals(packet_count, LookupMap(self.map_fd, uid).value)
+      self.assertEqual(packet_count, LookupMap(self.map_fd, uid).value)
       DeleteMap(self.map_fd, uid);
       SocketUDPLoopBack(packet_count, 6, self.prog_fd)
-      self.assertEquals(packet_count, LookupMap(self.map_fd, uid).value)
+      self.assertEqual(packet_count, LookupMap(self.map_fd, uid).value)
 
 @unittest.skipUnless(HAVE_EBPF_ACCOUNTING,
                      "Cgroup BPF is not fully supported")
@@ -397,17 +397,17 @@ class BpfCgroupTest(net_test.NetworkTest):
     with net_test.RunAsUid(uid):
       self.assertRaisesErrno(errno.ENOENT, LookupMap, self.map_fd, uid)
       SocketUDPLoopBack(packet_count, 4, None)
-      self.assertEquals(packet_count, LookupMap(self.map_fd, uid).value)
+      self.assertEqual(packet_count, LookupMap(self.map_fd, uid).value)
       DeleteMap(self.map_fd, uid)
       SocketUDPLoopBack(packet_count, 6, None)
-      self.assertEquals(packet_count, LookupMap(self.map_fd, uid).value)
+      self.assertEqual(packet_count, LookupMap(self.map_fd, uid).value)
     BpfProgDetach(self._cg_fd, BPF_CGROUP_INET_INGRESS)
 
   def checkSocketCreate(self, family, socktype, success):
     try:
       sock = socket.socket(family, socktype, 0)
       sock.close()
-    except socket.error, e:
+    except socket.error as e:
       if success:
         self.fail("Failed to create socket family=%d type=%d err=%s" %
                   (family, socktype, os.strerror(e.errno)))
