@@ -117,10 +117,10 @@ class XfrmAlgorithmTest(xfrm_base.XfrmLazyTest):
     def AssertEncrypted(packet):
       # This gives a free pass to ICMP and ICMPv6 packets, which show up
       # nondeterministically in tests.
-      self.assertEquals(None,
+      self.assertEqual(None,
                         packet.getlayer(scapy.UDP),
                         "UDP packet sent in the clear")
-      self.assertEquals(None,
+      self.assertEqual(None,
                         packet.getlayer(scapy.TCP),
                         "TCP packet sent in the clear")
 
@@ -237,10 +237,10 @@ class XfrmAlgorithmTest(xfrm_base.XfrmLazyTest):
         sock.listen(1)
         server_ready.set()
         accepted, peer = sock.accept()
-        self.assertEquals(remote_addr, peer[0])
-        self.assertEquals(client_port, peer[1])
+        self.assertEqual(remote_addr, peer[0])
+        self.assertEqual(client_port, peer[1])
         data = accepted.recv(2048)
-        self.assertEquals("hello request", data)
+        self.assertEqual("hello request", data)
         accepted.send("hello response")
       except Exception as e:
         server_error = e
@@ -251,9 +251,9 @@ class XfrmAlgorithmTest(xfrm_base.XfrmLazyTest):
       try:
         server_ready.set()
         data, peer = sock.recvfrom(2048)
-        self.assertEquals(remote_addr, peer[0])
-        self.assertEquals(client_port, peer[1])
-        self.assertEquals("hello request", data)
+        self.assertEqual(remote_addr, peer[0])
+        self.assertEqual(client_port, peer[1])
+        self.assertEqual("hello request", data)
         sock.sendto("hello response", peer)
       except Exception as e:
         server_error = e
@@ -283,7 +283,7 @@ class XfrmAlgorithmTest(xfrm_base.XfrmLazyTest):
       sock_left.connect((remote_addr, right_port))
       sock_left.send("hello request")
       data = sock_left.recv(2048)
-      self.assertEquals("hello response", data)
+      self.assertEqual("hello response", data)
       sock_left.close()
       server.join()
     if server_error:

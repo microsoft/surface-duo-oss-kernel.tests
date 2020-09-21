@@ -250,7 +250,7 @@ def CanonicalizeIPv6Address(addr):
 
 def FormatProcAddress(unformatted):
   groups = []
-  for i in xrange(0, len(unformatted), 4):
+  for i in range(0, len(unformatted), 4):
     groups.append(unformatted[i:i+4])
   formatted = ":".join(groups)
   # Compress the address.
@@ -265,7 +265,7 @@ def FormatSockStatAddress(address):
     family = AF_INET
   binary = inet_pton(family, address)
   out = ""
-  for i in xrange(0, len(binary), 4):
+  for i in range(0, len(binary), 4):
     out += "%08X" % struct.unpack("=L", binary[i:i+4])
   return out
 
@@ -368,14 +368,14 @@ class RunAsUidGid(object):
     self.gid = gid
 
   def __enter__(self):
+    if self.gid:
+      self.saved_gid = os.getgid()
+      os.setgid(self.gid)
     if self.uid:
       self.saved_uids = os.getresuid()
       self.saved_groups = os.getgroups()
       os.setgroups(self.saved_groups + [AID_INET])
       os.setresuid(self.uid, self.uid, self.saved_uids[0])
-    if self.gid:
-      self.saved_gid = os.getgid()
-      os.setgid(self.gid)
 
   def __exit__(self, unused_type, unused_value, unused_traceback):
     if self.uid:
