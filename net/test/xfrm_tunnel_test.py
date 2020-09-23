@@ -109,7 +109,7 @@ def _CreateReceiveSock(version, port=0):
   # The second parameter of the tuple is the port number regardless of AF.
   local_port = read_sock.getsockname()[1]
   # Guard against the eventuality of the receive failing.
-  net_test.SetNonBlocking(read_sock.fileno())
+  csocket.SetSocketTimeout(read_sock, 500)
 
   return read_sock, local_port
 
