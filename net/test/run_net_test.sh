@@ -259,7 +259,7 @@ if ((nobuild == 0)); then
   if [ "$ARCH" == "um" ]; then
     # Exporting ARCH=um SUBARCH=x86_64 doesn't seem to work, as it
     # "sometimes" (?) results in a 32-bit kernel.
-    make_flags="$make_flags ARCH=$ARCH SUBARCH=x86_64 CROSS_COMPILE= "
+    make_flags="$make_flags ARCH=$ARCH SUBARCH=${SUBARCH:-x86_64} CROSS_COMPILE= "
   fi
   if [ -n "$CC" ]; then
     # The CC flag is *not* inherited from the environment, so it must be
