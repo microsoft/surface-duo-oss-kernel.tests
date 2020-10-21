@@ -20,6 +20,7 @@ import ctypes
 import ctypes.util
 import os
 import socket
+import sys
 
 import net_test
 import sock_diag
@@ -112,9 +113,9 @@ def UnShare(flags):
 
 
 def DumpMounts(hdr):
-  print()
+  print('')
   print(hdr)
-  print open('/proc/mounts', 'r').read(),
+  sys.stdout.write(open('/proc/mounts', 'r').read())
   print('---')
 
 
@@ -125,7 +126,7 @@ def DumpMounts(hdr):
 def IfPossibleEnterNewNetworkNamespace():
   """Instantiate and transition into a fresh new network namespace if possible."""
 
-  print 'Creating clean namespace...',
+  sys.stdout.write('Creating clean namespace... ')
 
   try:
     UnShare(CLONE_NEWNS | CLONE_NEWUTS | CLONE_NEWNET)
