@@ -211,6 +211,9 @@ if [ ! -f $ROOTFS ]; then
   echo "Uncompressing $COMPRESSED_ROOTFS" >&2
   unxz $COMPRESSED_ROOTFS
 fi
+if ! [[ "${ROOTFS}" =~ ^/ ]]; then
+  ROOTFS="${SCRIPT_DIR}/${ROOTFS}"
+fi
 echo "Using $ROOTFS"
 cd -
 
@@ -259,7 +262,7 @@ if ((nobuild == 0)); then
   if [ "$ARCH" == "um" ]; then
     # Exporting ARCH=um SUBARCH=x86_64 doesn't seem to work, as it
     # "sometimes" (?) results in a 32-bit kernel.
-    make_flags="$make_flags ARCH=$ARCH SUBARCH=x86_64 CROSS_COMPILE= "
+    make_flags="$make_flags ARCH=$ARCH SUBARCH=${SUBARCH:-x86_64} CROSS_COMPILE= "
   fi
   if [ -n "$CC" ]; then
     # The CC flag is *not* inherited from the environment, so it must be
@@ -332,7 +335,7 @@ if [ "$ARCH" == "um" ]; then
 
   exitcode=0
   $KERNEL_BINARY >&2 umid=net_test mem=512M \
-    $blockdevice=$SCRIPT_DIR/$ROOTFS $netconfig $consolemode $cmdline \
+    $blockdevice=$ROOTFS $netconfig $consolemode $cmdline \
   || exitcode=$?
 
   # UML is kind of crazy in how guest syscalls work.  It requires host kernel
@@ -371,7 +374,7 @@ else
   else
     blockdevice=
   fi
-  blockdevice="-drive file=$SCRIPT_DIR/$ROOTFS,format=raw,if=none,id=drive-virtio-disk0$blockdevice"
+  blockdevice="-drive file=$ROOTFS,format=raw,if=none,id=drive-virtio-disk0$blockdevice"
   blockdevice="$blockdevice -device virtio-blk-pci,drive=drive-virtio-disk0"
 
   # Pass through our current console/screen size to inner shell session
