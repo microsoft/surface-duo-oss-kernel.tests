@@ -23,6 +23,7 @@ OPTIONS="$OPTIONS IP_NF_IPTABLES IP_NF_MANGLE IP_NF_FILTER"
 OPTIONS="$OPTIONS IP6_NF_IPTABLES IP6_NF_MANGLE IP6_NF_FILTER INET6_IPCOMP"
 OPTIONS="$OPTIONS IPV6_OPTIMISTIC_DAD"
 OPTIONS="$OPTIONS IPV6_ROUTE_INFO IPV6_ROUTER_PREF"
+OPTIONS="$OPTIONS NETFILTER_XT_TARGET_IDLETIMER"
 OPTIONS="$OPTIONS NETFILTER_XT_TARGET_NFLOG"
 OPTIONS="$OPTIONS NETFILTER_XT_MATCH_POLICY"
 OPTIONS="$OPTIONS NETFILTER_XT_MATCH_QUOTA"
@@ -36,6 +37,7 @@ OPTIONS="$OPTIONS IP_NF_TARGET_REJECT IP_NF_TARGET_REJECT_SKERR"
 OPTIONS="$OPTIONS IP6_NF_TARGET_REJECT IP6_NF_TARGET_REJECT_SKERR"
 OPTIONS="$OPTIONS NET_KEY XFRM_USER XFRM_STATISTICS CRYPTO_CBC"
 OPTIONS="$OPTIONS CRYPTO_CTR CRYPTO_HMAC CRYPTO_AES CRYPTO_SHA1"
+OPTIONS="$OPTIONS CRYPTO_XCBC CRYPTO_CHACHA20POLY1305"
 OPTIONS="$OPTIONS CRYPTO_USER INET_ESP INET_XFRM_MODE_TRANSPORT"
 OPTIONS="$OPTIONS INET_XFRM_MODE_TUNNEL INET6_ESP"
 OPTIONS="$OPTIONS INET6_XFRM_MODE_TRANSPORT INET6_XFRM_MODE_TUNNEL"
@@ -209,6 +211,9 @@ if [ ! -f $ROOTFS ]; then
   echo "Uncompressing $COMPRESSED_ROOTFS" >&2
   unxz $COMPRESSED_ROOTFS
 fi
+if ! [[ "${ROOTFS}" =~ ^/ ]]; then
+  ROOTFS="${SCRIPT_DIR}/${ROOTFS}"
+fi
 echo "Using $ROOTFS"
 cd -
 
@@ -257,7 +262,7 @@ if ((nobuild == 0)); then
   if [ "$ARCH" == "um" ]; then
     # Exporting ARCH=um SUBARCH=x86_64 doesn't seem to work, as it
     # "sometimes" (?) results in a 32-bit kernel.
-    make_flags="$make_flags ARCH=$ARCH SUBARCH=x86_64 CROSS_COMPILE= "
+    make_flags="$make_flags ARCH=$ARCH SUBARCH=${SUBARCH:-x86_64} CROSS_COMPILE= "
   fi
   if [ -n "$CC" ]; then
     # The CC flag is *not* inherited from the environment, so it must be
@@ -330,7 +335,7 @@ if [ "$ARCH" == "um" ]; then
 
   exitcode=0
   $KERNEL_BINARY >&2 umid=net_test mem=512M \
-    $blockdevice=$SCRIPT_DIR/$ROOTFS $netconfig $consolemode $cmdline \
+    $blockdevice=$ROOTFS $netconfig $consolemode $cmdline \
   || exitcode=$?
 
   # UML is kind of crazy in how guest syscalls work.  It requires host kernel
@@ -369,7 +374,7 @@ else
   else
     blockdevice=
   fi
-  blockdevice="-drive file=$SCRIPT_DIR/$ROOTFS,format=raw,if=none,id=drive-virtio-disk0$blockdevice"
+  blockdevice="-drive file=$ROOTFS,format=raw,if=none,id=drive-virtio-disk0$blockdevice"
   blockdevice="$blockdevice -device virtio-blk-pci,drive=drive-virtio-disk0"
 
   # Pass through our current console/screen size to inner shell session
