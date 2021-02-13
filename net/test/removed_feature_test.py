@@ -80,6 +80,15 @@ class RemovedFeatureTest(net_test.NetworkTest):
   def testRemovedQtaguid(self):
     self.assertRaisesErrno(errno.ENOENT, open, "/proc/net/xt_qtaguid")
 
+  @unittest.skipUnless(net_test.LINUX_VERSION >= (4, 19, 0), "exists in 4.14-P")
+  def testRemovedTcpMemSysctls(self):
+    self.assertRaisesErrno(errno.ENOENT, open, "/sys/kernel/ipv4/tcp_rmem_def")
+    self.assertRaisesErrno(errno.ENOENT, open, "/sys/kernel/ipv4/tcp_rmem_max")
+    self.assertRaisesErrno(errno.ENOENT, open, "/sys/kernel/ipv4/tcp_rmem_min")
+    self.assertRaisesErrno(errno.ENOENT, open, "/sys/kernel/ipv4/tcp_wmem_def")
+    self.assertRaisesErrno(errno.ENOENT, open, "/sys/kernel/ipv4/tcp_wmem_max")
+    self.assertRaisesErrno(errno.ENOENT, open, "/sys/kernel/ipv4/tcp_wmem_min")
+
 
 if __name__ == "__main__":
   unittest.main()
