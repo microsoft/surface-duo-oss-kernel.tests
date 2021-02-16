@@ -119,7 +119,7 @@ def PrintMapInfo(map_fd):
       value = LookupMap(map_fd, next_key)
       print(repr(next_key) + " : " + repr(value.value))  # pylint: disable=superfluous-parens
       key = next_key
-    except Exception:  # pylint: disable=broad-except
+    except socket.error:
       print("no value")  # pylint: disable=superfluous-parens
       break
 
