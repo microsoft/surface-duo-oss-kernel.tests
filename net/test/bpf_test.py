@@ -219,8 +219,6 @@ class BpfTest(net_test.NetworkTest):
     self.assertRaisesErrno(errno.EPERM, UpdateMap, self.map_fd, key, value)
     self.assertRaisesErrno(errno.ENOENT, LookupMap, self.map_fd, key)
 
-  @unittest.skipUnless(HAVE_EBPF_ACCOUNTING,
-                       "BPF helper function is not fully supported")
   def testWrOnlyMap(self):
     self.map_fd = CreateMap(BPF_MAP_TYPE_HASH, KEY_SIZE, VALUE_SIZE,
                             TOTAL_ENTRIES, map_flags=BPF_F_WRONLY)
@@ -263,8 +261,6 @@ class BpfTest(net_test.NetworkTest):
     SocketUDPLoopBack(packet_count, 6, self.prog_fd)
     self.assertEqual(packet_count * 2, LookupMap(self.map_fd, key).value)
 
-  @unittest.skipUnless(HAVE_EBPF_ACCOUNTING,
-                       "BPF helper function is not fully supported")
   def testGetSocketCookie(self):
     self.map_fd = CreateMap(BPF_MAP_TYPE_HASH, KEY_SIZE, VALUE_SIZE,
                             TOTAL_ENTRIES)
@@ -287,8 +283,6 @@ class BpfTest(net_test.NetworkTest):
     PacketCountByCookie(4)
     PacketCountByCookie(6)
 
-  @unittest.skipUnless(HAVE_EBPF_ACCOUNTING,
-                       "BPF helper function is not fully supported")
   def testGetSocketUid(self):
     self.map_fd = CreateMap(BPF_MAP_TYPE_HASH, KEY_SIZE, VALUE_SIZE,
                             TOTAL_ENTRIES)
