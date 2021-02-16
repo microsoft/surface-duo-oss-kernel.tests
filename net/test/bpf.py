@@ -161,9 +161,11 @@ BPF_FUNC_unspec = 0
 BPF_FUNC_map_lookup_elem = 1
 BPF_FUNC_map_update_elem = 2
 BPF_FUNC_map_delete_elem = 3
+BPF_FUNC_ktime_get_ns = 5
 BPF_FUNC_get_current_uid_gid = 15
 BPF_FUNC_get_socket_cookie = 46
 BPF_FUNC_get_socket_uid = 47
+BPF_FUNC_ktime_get_boot_ns = 125
 # pylint: enable=invalid-name
 
 BPF_F_RDONLY = 1 << 3
@@ -253,10 +255,10 @@ def DeleteMap(map_fd, key):
   BpfSyscall(BPF_MAP_DELETE_ELEM, attr)
 
 
-def BpfProgLoad(prog_type, instructions):
+def BpfProgLoad(prog_type, instructions, prog_license=b"GPL"):
   bpf_prog = "".join(instructions)
   insn_buff = ctypes.create_string_buffer(bpf_prog)
-  gpl_license = ctypes.create_string_buffer(b"GPL")
+  gpl_license = ctypes.create_string_buffer(prog_license)
   log_buf = ctypes.create_string_buffer(b"", LOG_SIZE)
   attr = BpfAttrProgLoad((prog_type, len(insn_buff) / len(BpfInsn),
                           ctypes.addressof(insn_buff),

@@ -78,12 +78,25 @@ from bpf import LookupMap
 from bpf import UpdateMap
 import csocket
 import net_test
+from net_test import LINUX_VERSION
 import sock_diag
 
 libc = ctypes.CDLL(ctypes.util.find_library("c"), use_errno=True)
 
 HAVE_EBPF_ACCOUNTING = bpf.HAVE_EBPF_4_9
 HAVE_EBPF_SOCKET = bpf.HAVE_EBPF_4_14
+
+# bpf_ktime_get_ns() was made non-GPL requiring in 5.8 and at the same time
+# bpf_ktime_get_boot_ns() was added, both of these changes were backported to
+# Android Common Kernel in 4.14.221, 4.19.175, 5.4.97.
+# As such we require 4.14.222+ 4.19.176+ 5.4.98+ 5.8.0+,
+# but since we only really care about LTS releases:
+HAVE_EBPF_KTIME_GET_NS_APACHE2 = (
+    ((LINUX_VERSION > (4, 14, 221)) and (LINUX_VERSION < (4, 19, 0))) or
+    ((LINUX_VERSION > (4, 19, 175)) and (LINUX_VERSION < (5, 4, 0))) or
+    (LINUX_VERSION > (5, 4, 97))
+)
+HAVE_EBPF_KTIME_GET_BOOT_NS = HAVE_EBPF_KTIME_GET_NS_APACHE2
 
 KEY_SIZE = 8
 VALUE_SIZE = 4
@@ -316,6 +329,60 @@ class BpfTest(net_test.NetworkTest):
     SocketUDPLoopBack(packet_count, 4, self.prog_fd)
     SocketUDPLoopBack(packet_count, 6, self.prog_fd)
     self.assertEqual(packet_count * 2, LookupMap(self.map_fd, key).value)
+
+  def testKtimeGetNsGPL(self):
+    instructions = [BpfFuncCall(BPF_FUNC_ktime_get_ns)]
+    instructions += INS_BPF_EXIT_BLOCK
+    self.prog_fd = BpfProgLoad(BPF_PROG_TYPE_SCHED_CLS, instructions)
+    # No exceptions? Good.
+
+  ##############################################################################
+  #
+  # Test for presence of kernel patch:
+  #
+  #   UPSTREAM: net: bpf: Make bpf_ktime_get_ns() available to non GPL programs
+  #
+  # 4.14: https://android-review.googlesource.com/c/kernel/common/+/1585269
+  #       commit cbb4c73f9eab8f3c8ac29175d45c99ccba382e15
+  #
+  # 4.19: https://android-review.googlesource.com/c/kernel/common/+/1355243
+  #       commit 272e21ccc9a92feeee80aff0587410a314b73c5b
+  #
+  # 5.4:  https://android-review.googlesource.com/c/kernel/common/+/1355422
+  #       commit 45217b91eaaa3a563247c4f470f4cb785de6b1c6
+  #
+  @unittest.skipUnless(HAVE_EBPF_KTIME_GET_NS_APACHE2,
+                       "no bpf_ktime_get_ns() support for non-GPL programs")
+  def testKtimeGetNsApache2(self):
+    instructions = [BpfFuncCall(BPF_FUNC_ktime_get_ns)]
+    instructions += INS_BPF_EXIT_BLOCK
+    self.prog_fd = BpfProgLoad(BPF_PROG_TYPE_SCHED_CLS, instructions,
+                               b"Apache 2.0")
+    # No exceptions? Good.
+
+  ##############################################################################
+  #
+  # Test for presence of kernel patch:
+  #
+  #   BACKPORT: bpf: add bpf_ktime_get_boot_ns()
+  #
+  # 4.14: https://android-review.googlesource.com/c/kernel/common/+/1585587
+  #       commit 34073d7a8ee47ca908b56e9a1d14ca0615fdfc09
+  #
+  # 4.19: https://android-review.googlesource.com/c/kernel/common/+/1585606
+  #       commit 4812ec50935dfe59ba9f48a572e278dd0b02af68
+  #
+  # 5.4:  https://android-review.googlesource.com/c/kernel/common/+/1585252
+  #       commit 57b3f4830fb66a6038c4c1c66ca2e138fe8be231
+  #
+  @unittest.skipUnless(HAVE_EBPF_KTIME_GET_BOOT_NS,
+                       "no bpf_ktime_get_boot_ns() support")
+  def testKtimeGetBootNs(self):
+    instructions = [BpfFuncCall(BPF_FUNC_ktime_get_boot_ns)]
+    instructions += INS_BPF_EXIT_BLOCK
+    self.prog_fd = BpfProgLoad(BPF_PROG_TYPE_SCHED_CLS, instructions,
+                               b"Apache 2.0")
+    # No exceptions? Good.
 
   def testGetSocketCookie(self):
     self.map_fd = CreateMap(BPF_MAP_TYPE_HASH, KEY_SIZE, VALUE_SIZE,
