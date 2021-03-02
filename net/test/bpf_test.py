@@ -38,6 +38,7 @@ from bpf import BPF_FUNC_ktime_get_boot_ns
 from bpf import BPF_FUNC_ktime_get_ns
 from bpf import BPF_FUNC_map_lookup_elem
 from bpf import BPF_FUNC_map_update_elem
+from bpf import BPF_FUNC_skb_change_head
 from bpf import BPF_JNE
 from bpf import BPF_MAP_TYPE_HASH
 from bpf import BPF_PROG_TYPE_CGROUP_SKB
@@ -330,9 +331,40 @@ class BpfTest(net_test.NetworkTest):
     SocketUDPLoopBack(packet_count, 6, self.prog_fd)
     self.assertEqual(packet_count * 2, LookupMap(self.map_fd, key).value)
 
+  ##############################################################################
+  #
+  # Test for presence of kernel patch:
+  #
+  #   ANDROID: net: bpf: Allow TC programs to call BPF_FUNC_skb_change_head
+  #
+  # 4.14: https://android-review.googlesource.com/c/kernel/common/+/1237789
+  #       commit fe82848d9c1c887d2a84d3738c13e644d01b6d6f
+  #
+  # 4.19: https://android-review.googlesource.com/c/kernel/common/+/1237788
+  #       commit 6e04d94ab72435b45c413daff63520fd724e260e
+  #
+  # 5.4:  https://android-review.googlesource.com/c/kernel/common/+/1237787
+  #       commit d730995e7bc5b4c10cc176235b704a274e6ec16f
+  #
+  # Upstream in Linux v5.8:
+  #   net: bpf: Allow TC programs to call BPF_FUNC_skb_change_head
+  #   commit 6f3f65d80dac8f2bafce2213005821fccdce194c
+  #
+  @unittest.skipUnless(bpf.HAVE_EBPF_4_14,
+                       "no bpf_skb_change_head() support for pre-4.14 kernels")
+  def testSkbChangeHead(self):
+    # long bpf_skb_change_head(struct sk_buff *skb, u32 len, u64 flags)
+    instructions = [
+        BpfMov64Imm(BPF_REG_2, 14),  # u32 len
+        BpfMov64Imm(BPF_REG_3, 0),   # u64 flags
+        BpfFuncCall(BPF_FUNC_skb_change_head),
+    ] + INS_BPF_EXIT_BLOCK
+    self.prog_fd = BpfProgLoad(BPF_PROG_TYPE_SCHED_CLS, instructions,
+                               b"Apache 2.0")
+    # No exceptions? Good.
+
   def testKtimeGetNsGPL(self):
-    instructions = [BpfFuncCall(BPF_FUNC_ktime_get_ns)]
-    instructions += INS_BPF_EXIT_BLOCK
+    instructions = [BpfFuncCall(BPF_FUNC_ktime_get_ns)] + INS_BPF_EXIT_BLOCK
     self.prog_fd = BpfProgLoad(BPF_PROG_TYPE_SCHED_CLS, instructions)
     # No exceptions? Good.
 
@@ -354,8 +386,7 @@ class BpfTest(net_test.NetworkTest):
   @unittest.skipUnless(HAVE_EBPF_KTIME_GET_NS_APACHE2,
                        "no bpf_ktime_get_ns() support for non-GPL programs")
   def testKtimeGetNsApache2(self):
-    instructions = [BpfFuncCall(BPF_FUNC_ktime_get_ns)]
-    instructions += INS_BPF_EXIT_BLOCK
+    instructions = [BpfFuncCall(BPF_FUNC_ktime_get_ns)] + INS_BPF_EXIT_BLOCK
     self.prog_fd = BpfProgLoad(BPF_PROG_TYPE_SCHED_CLS, instructions,
                                b"Apache 2.0")
     # No exceptions? Good.
@@ -378,8 +409,9 @@ class BpfTest(net_test.NetworkTest):
   @unittest.skipUnless(HAVE_EBPF_KTIME_GET_BOOT_NS,
                        "no bpf_ktime_get_boot_ns() support")
   def testKtimeGetBootNs(self):
-    instructions = [BpfFuncCall(BPF_FUNC_ktime_get_boot_ns)]
-    instructions += INS_BPF_EXIT_BLOCK
+    instructions = [
+        BpfFuncCall(BPF_FUNC_ktime_get_boot_ns),
+    ] + INS_BPF_EXIT_BLOCK
     self.prog_fd = BpfProgLoad(BPF_PROG_TYPE_SCHED_CLS, instructions,
                                b"Apache 2.0")
     # No exceptions? Good.
