@@ -47,6 +47,7 @@ OPTIONS="$OPTIONS DUMMY"
 
 # Kernel version specific options
 OPTIONS="$OPTIONS XFRM_INTERFACE"                # Various device kernels
+OPTIONS="$OPTIONS XFRM_MIGRATE"                  # Added in 5.10
 OPTIONS="$OPTIONS CGROUP_BPF"                    # Added in android-4.9
 OPTIONS="$OPTIONS NF_SOCKET_IPV4 NF_SOCKET_IPV6" # Added in 4.9
 OPTIONS="$OPTIONS INET_SCTP_DIAG"                # Added in 4.7
