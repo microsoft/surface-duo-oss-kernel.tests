@@ -47,6 +47,7 @@ OPTIONS="$OPTIONS DUMMY"
 
 # Kernel version specific options
 OPTIONS="$OPTIONS XFRM_INTERFACE"                # Various device kernels
+OPTIONS="$OPTIONS XFRM_MIGRATE"                  # Added in 5.10
 OPTIONS="$OPTIONS CGROUP_BPF"                    # Added in android-4.9
 OPTIONS="$OPTIONS NF_SOCKET_IPV4 NF_SOCKET_IPV6" # Added in 4.9
 OPTIONS="$OPTIONS INET_SCTP_DIAG"                # Added in 4.7
@@ -323,8 +324,10 @@ if [ "$ARCH" == "um" ]; then
   # Get the absolute path to the test file that's being run.
   cmdline="$cmdline net_test=/host$SCRIPT_DIR/$test"
 
-  # Use UML's /proc/exitcode feature to communicate errors on test failure
-  cmdline="$cmdline net_test_exitcode=/proc/exitcode"
+  # We'd use UML's /proc/exitcode feature to communicate errors on test failure,
+  # if not for UML having a tendency to crash during shutdown,
+  # so instead use an extra serial line we'll redirect to an open fd...
+  cmdline="$cmdline net_test_exitcode=/dev/ttyS3"
 
   # Map the --readonly flag to UML block device names
   if ((nowrite == 0)); then
@@ -333,10 +336,29 @@ if [ "$ARCH" == "um" ]; then
     blockdevice=ubdar
   fi
 
+  # Create a temp file for 'serial line 3' for return code.
+  SSL3="$(mktemp)"
+
   exitcode=0
-  $KERNEL_BINARY >&2 umid=net_test mem=512M \
-    $blockdevice=$ROOTFS $netconfig $consolemode $cmdline \
+  $KERNEL_BINARY >&2 3>"${SSL3}" umid=net_test mem=512M \
+    $blockdevice=$ROOTFS $netconfig $consolemode ssl3=null,fd:3 $cmdline \
   || exitcode=$?
+
+  if [[ "${exitcode}" == 134 && -s "${SSL3}" && "$(tr -d '\r' < "${SSL3}")" == 0 ]]; then
+    # Sometimes the tests all pass, but UML crashes during the shutdown process itself.
+    # As such we can't actually rely on the /proc/exitcode returned value.
+    echo "Warning: UML appears to have crashed after successfully executing the tests." 1>&2
+  elif [[ "${exitcode}" != 0 ]]; then
+    echo "Warning: UML exited with ${exitcode} instead of zero." 1>&2
+  fi
+
+  if [[ -s "${SSL3}" ]]; then
+    exitcode="$(tr -d '\r' < "${SSL3}")"
+    echo "Info: retrieved exit code ${exitcode}." 1>&2
+  fi
+
+  rm -f "${SSL3}"
+  unset SSL3
 
   # UML is kind of crazy in how guest syscalls work.  It requires host kernel
   # to not be in vsyscall=none mode.
