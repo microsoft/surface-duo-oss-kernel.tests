@@ -163,6 +163,7 @@ BPF_FUNC_map_update_elem = 2
 BPF_FUNC_map_delete_elem = 3
 BPF_FUNC_ktime_get_ns = 5
 BPF_FUNC_get_current_uid_gid = 15
+BPF_FUNC_skb_change_head = 43
 BPF_FUNC_get_socket_cookie = 46
 BPF_FUNC_get_socket_uid = 47
 BPF_FUNC_ktime_get_boot_ns = 125
