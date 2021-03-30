@@ -18,6 +18,11 @@
 set -e
 set -u
 
+trap "echo 2 >${exitcode}" ERR
+
+# Remove the old ramdisk root; we don't need it any more
+umount -l /host
+
 # Complete the debootstrap process
 /debootstrap/debootstrap --second-stage
 
@@ -50,14 +55,15 @@ EOF
 mkdir -p /var/empty
 
 # Clean up any other junk created by the imaging process
-rm -rf /root/stage2.sh /tmp/*
+rm -rf /root/stage1.sh /root/stage2.sh /root/lib /tmp/*
 find /var/log -type f -exec rm -f '{}' ';'
 find /var/tmp -type f -exec rm -f '{}' ';'
 
 # Create an empty initramfs to be combined with modules later
 sed -i 's,^COMPRESS=gzip,COMPRESS=lz4,' /etc/initramfs-tools/initramfs.conf
-mkdir -p /lib/modules/0.0
-depmod -a 0.0
-update-initramfs -c -k 0.0
-mv /boot/initrd.img-0.0 /boot/initrd.img
-rm -rf /lib/modules/0.0
+depmod -a $(uname -r)
+update-initramfs -c -k $(uname -r)
+dd if=/boot/initrd.img-$(uname -r) of=/dev/vdb conv=fsync
+
+echo 0 >"${exitcode}"
+sync && poweroff -f
