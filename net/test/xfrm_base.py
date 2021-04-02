@@ -270,6 +270,13 @@ def DecryptPacketWithNull(packet):
 class XfrmBaseTest(multinetwork_base.MultiNetworkBaseTest):
   """Base test class for all XFRM-related testing."""
 
+  def _isIcmpv6(self, payload):
+    if not isinstance(payload, scapy.IPv6):
+      return False
+    if payload.nh == IPPROTO_ICMPV6:
+      return True
+    return payload.nh == IPPROTO_HOPOPTS and payload.payload.nh == IPPROTO_ICMPV6
+
   def _ExpectEspPacketOn(self, netid, spi, seq, length, src_addr, dst_addr):
     """Read a packet from a netid and verify its properties.
 
@@ -284,7 +291,11 @@ class XfrmBaseTest(multinetwork_base.MultiNetworkBaseTest):
     Returns:
       scapy.IP/IPv6: the read packet
     """
-    packets = self.ReadAllPacketsOn(netid)
+    packets = []
+    for packet in self.ReadAllPacketsOn(netid):
+      if not self._isIcmpv6(packet):
+        packets.append(packet)
+
     self.assertEqual(1, len(packets))
     packet = packets[0]
     if length is not None:
