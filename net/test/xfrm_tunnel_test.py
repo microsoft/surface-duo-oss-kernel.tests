@@ -1044,25 +1044,26 @@ class XfrmInterfaceMigrateTest(XfrmTunnelBase):
     tunnel.Teardown()
 
   def _TestTunnel(self, inner_version, outer_version, func, use_null_crypt):
-    tunnel = self.setUpTunnel(outer_version, use_null_crypt)
+    try:
+      tunnel = self.setUpTunnel(outer_version, use_null_crypt)
 
-    # Verify functionality before migration
-    local_inner = tunnel.addrs[inner_version]
-    remote_inner = _GetRemoteInnerAddress(inner_version)
-    func(tunnel, inner_version, local_inner, remote_inner)
+      # Verify functionality before migration
+      local_inner = tunnel.addrs[inner_version]
+      remote_inner = _GetRemoteInnerAddress(inner_version)
+      func(tunnel, inner_version, local_inner, remote_inner)
 
-    # Migrate tunnel
-    # TODO:b/169170981 Add tests that migrate 4 -> 6 and 6 -> 4
-    new_underlying_netid = self.RandomNetid(exclude=tunnel.underlying_netid)
-    new_local = self.MyAddress(outer_version, new_underlying_netid)
-    new_remote = net_test.IPV4_ADDR2 if outer_version == 4 else net_test.IPV6_ADDR2
+      # Migrate tunnel
+      # TODO:b/169170981 Add tests that migrate 4 -> 6 and 6 -> 4
+      new_underlying_netid = self.RandomNetid(exclude=tunnel.underlying_netid)
+      new_local = self.MyAddress(outer_version, new_underlying_netid)
+      new_remote = net_test.IPV4_ADDR2 if outer_version == 4 else net_test.IPV6_ADDR2
 
-    tunnel.Migrate(new_underlying_netid, new_local, new_remote)
+      tunnel.Migrate(new_underlying_netid, new_local, new_remote)
 
-    # Verify functionality after migration
-    func(tunnel, inner_version, local_inner, remote_inner)
-
-    self.tearDownTunnel(tunnel)
+      # Verify functionality after migration
+      func(tunnel, inner_version, local_inner, remote_inner)
+    finally:
+      self.tearDownTunnel(tunnel)
 
   def ParamTestMigrateXfrmIntfInput(self, inner_version, outer_version):
     self._TestTunnel(inner_version, outer_version, self._CheckTunnelInput, True)
