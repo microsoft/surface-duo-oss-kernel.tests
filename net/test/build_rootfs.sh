@@ -21,7 +21,7 @@ set -u
 SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd -P)
 
 usage() {
-  echo -n "usage: $0 [-h] [-s bullseye|bullseye-cuttlefish] "
+  echo -n "usage: $0 [-h] [-s bullseye|bullseye-cuttlefish|bullseye-rockpi] "
   echo -n "[-a i386|amd64|armhf|arm64] -k /path/to/kernel "
   echo -n "-i /path/to/initramfs.gz [-d /path/to/dtb:subdir] "
   echo "[-m http://mirror/debian] [-n rootfs] [-r initrd] [-e]"
