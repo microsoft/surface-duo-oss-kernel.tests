@@ -19,6 +19,7 @@
 
 iptables=iptables-1.8.7
 debian_iptables=1.8.7-1
+cuttlefish=android-cuttlefish
 
 setup_and_build_iptables() {
   # Install everything needed from bullseye to build iptables
@@ -85,6 +86,30 @@ install_and_cleanup_iptables() {
 
     # Tidy up the mess we left behind, leaving just the source tarballs
     rm -rf $iptables *.{buildinfo,changes,deb,dsc}
+  cd -
+}
+
+setup_and_build_cuttlefish() {
+  # Install everything needed from bullseye to build cuttlefish-common
+  apt-get install -y \
+    cdbs \
+    config-package-dev \
+    debhelper \
+    dpkg-dev \
+    git
+
+  # Fetch cuttlefish and build it for cuttlefish-common
+  git clone https://github.com/google/android-cuttlefish.git /usr/src/$cuttlefish
+  cd /usr/src/$cuttlefish
+    dpkg-buildpackage -d -uc -us
+  cd -
+}
+
+install_and_cleanup_cuttlefish() {
+  # Install and clean up cuttlefish-common
+  cd /usr/src
+    apt-get install -y -f ./cuttlefish-common_*.deb
+    rm -rf $cuttlefish cuttlefish*.{buildinfo,changes,deb,dsc}
   cd -
 }
 

@@ -28,8 +28,9 @@ unset LANG LANGUAGE \
 export LC_ALL=C
 
 usage() {
-  echo -n "usage: $0 [-h] [-s bullseye] [-a i386|amd64|armhf|arm64] "
-  echo "[-m http://mirror/debian] [-n rootfs] [-r initrd]"
+  echo -n "usage: $0 [-h] [-s bullseye|bullseye-cuttlefish] "
+  echo -n "[-a i386|amd64|armhf|arm64] "
+  echo -n "[-m http://mirror/debian] [-n rootfs] [-r initrd]"
   exit 1
 }
 

@@ -54,6 +54,50 @@ setup_static_networking() {
   echo "nameserver 8.8.4.4" >>/etc/resolv.conf
 }
 
+# $1 - Network interface for bridge (or NetworkManager DHCP)
+# $2 - Bridge name. If set to the empty string, NetworkManager is used
+setup_dynamic_networking() {
+  # So isc-dhcp-client can work with a read-only rootfs..
+  cat >>/etc/fstab <<EOF
+tmpfs      /var/lib/dhcp tmpfs defaults 0 0
+EOF
+
+  # Bring up networking one time with dhclient
+  mount /var/lib/dhcp
+  dhclient eth0
+  echo "nameserver 8.8.8.8"  >/run/resolvconf/resolv.conf
+  echo "nameserver 8.8.4.4" >>/run/resolvconf/resolv.conf
+
+  # Set up automatic DHCP for *future* boots
+  if [ -z "$2" ]; then
+    cat >/etc/systemd/network/dhcp.network <<EOF
+[Match]
+Name=$1
+
+[Network]
+DHCP=yes
+EOF
+    # Mask the NetworkManager-wait-online service to prevent hangs
+    systemctl mask NetworkManager-wait-online.service
+  else
+    cat >/etc/network/interfaces.d/$2.conf <<EOF
+auto $2
+iface $2 inet dhcp
+	bridge_ports $1
+	bridge_stp off
+	bridge_fd 0
+EOF
+  fi
+}
+
+setup_cuttlefish_user() {
+  # Add a default user and put them in the right group
+  addgroup --system cvdnetwork
+  useradd -m -G cvdnetwork,kvm,render,sudo,video \
+    -d /home/vsoc-01 --shell /bin/bash vsoc-01
+  echo -e "cuttlefish\ncuttlefish" | passwd vsoc-01
+}
+
 # $* - One or more device names for getty spawns
 create_systemd_getty_symlinks() {
   for device in $*; do
