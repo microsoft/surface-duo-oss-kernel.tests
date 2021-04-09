@@ -29,7 +29,7 @@ export LC_ALL=C
 
 usage() {
   echo -n "usage: $0 [-h] [-s bullseye] [-a i386|amd64|armhf|arm64] "
-  echo "[-m http://mirror/debian] [-n net_test.rootfs.$(date +%Y%m%d)]"
+  echo "[-m http://mirror/debian] [-n rootfs] [-r initrd]"
   exit 1
 }
 
@@ -37,7 +37,10 @@ mirror=http://ftp.debian.org/debian
 suite=bullseye
 arch=amd64
 
-while getopts ":hs:a:m:n:" opt; do
+ramdisk=
+rootfs=
+
+while getopts ":hs:a:m:n:r:" opt; do
   case "${opt}" in
     h)
       usage
@@ -64,7 +67,10 @@ while getopts ":hs:a:m:n:" opt; do
       mirror="${OPTARG}"
       ;;
     n)
-      name="${OPTARG}"
+      rootfs="${OPTARG}"
+      ;;
+    r)
+      ramdisk="${OPTARG}"
       ;;
     \?)
       echo "Invalid option: ${OPTARG}" >&2
@@ -77,13 +83,20 @@ while getopts ":hs:a:m:n:" opt; do
   esac
 done
 
-if [[ -z "${name}" ]]; then
-  name="net_test.rootfs.${arch}.${suite}.$(date +%Y%m%d)"
+if [[ -z "${rootfs}" ]]; then
+  rootfs="rootfs.${arch}.${suite}.$(date +%Y%m%d)"
 fi
+rootfs=$(realpath "${rootfs}")
+
+if [[ -z "${ramdisk}" ]]; then
+  ramdisk="initrd.${arch}.${suite}.$(date +%Y%m%d)"
+fi
+ramdisk=$(realpath "${ramdisk}")
 
 # Sometimes it isn't obvious when the script fails
 failure() {
   echo "Filesystem generation process failed." >&2
+  rm -f "${rootfs}" "${ramdisk}"
 }
 trap failure ERR
 
@@ -118,6 +131,7 @@ sudo mkdir host
 
 sudo chroot . root/stage2.sh
 sudo chroot . root/${suite}.sh
+raw_initrd="${PWD}"/boot/initrd.img
 
 # Workarounds for bugs in the debootstrap suite scripts
 for mount in $(cat /proc/mounts | cut -d' ' -f2 | grep -e "^${workdir}"); do
@@ -125,7 +139,36 @@ for mount in $(cat /proc/mounts | cut -d' ' -f2 | grep -e "^${workdir}"); do
   sudo umount "${mount}"
 done
 
+# Leave the workdir, to process the initrd
+cd -
+
+# New workdir for the initrd extraction
+workdir="${tmpdir}/initrd"
+mkdir "${workdir}"
+chmod 0755 "${workdir}"
+sudo chown root:root "${workdir}"
+
+# Change into workdir to repack initramfs
+cd "${workdir}"
+
+# Process the initrd to remove kernel-specific metadata
+lz4 -lcd "${raw_initrd}" | sudo cpio -idum
+sudo rm -f "${raw_initrd}"
+sudo rm -rf usr/lib/modules
+sudo mkdir -p usr/lib/modules
+
+# Debian symlinks /usr/lib to /lib, but we'd prefer the other way around
+# so that it more closely matches what happens in Android initramfs images.
+# This enables 'cat ramdiskA.img ramdiskB.img >ramdiskC.img' to "just work".
+sudo rm -f lib
+sudo mv usr/lib lib
+sudo ln -s /lib usr/lib
+
+# Repack the ramdisk to the final output
+find * | sudo cpio -H newc -o --quiet | lz4 -lc9 >"${ramdisk}"
+
 # Leave the workdir, to build the filesystem
+workdir="${tmpdir}/_"
 cd -
 
 # For the final image mount
@@ -137,11 +180,11 @@ mount_remove() {
 trap mount_remove EXIT
 
 # Create a 1G empty ext3 filesystem
-truncate -s 1G "${name}"
-mke2fs -F -t ext3 -L ROOT "${name}"
+truncate -s 1G "${rootfs}"
+mke2fs -F -t ext3 -L ROOT "${rootfs}"
 
 # Mount the new filesystem locally
-sudo mount -o loop -t ext3 "${name}" "${mount}"
+sudo mount -o loop -t ext3 "${rootfs}" "${mount}"
 image_unmount() {
   sudo umount "${mount}"
   mount_remove
@@ -155,4 +198,5 @@ sudo cp -a "${workdir}"/* "${mount}"
 sudo dd if=/dev/zero of="${mount}/sparse" bs=1M 2>/dev/null || true
 sudo rm -f "${mount}/sparse"
 
-echo "Debian ${suite} for ${arch} filesystem generated at '${name}'."
+echo "Debian ${suite} for ${arch} filesystem generated at '${rootfs}'."
+echo "Initial ramdisk generated at '${ramdisk}'."

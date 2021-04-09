@@ -67,6 +67,11 @@ cleanup() {
   mkdir -p /var/lib/systemd/{coredump,linger,rfkill,timesync}
   chown systemd-timesync:systemd-timesync /var/lib/systemd/timesync
 
+  # If embedding isn't enabled, remove the embedded modules and initrd and
+  # uninstall the tools to regenerate the initrd, as they're unlikely to
+  # ever be used
+  apt-get purge -y initramfs-tools initramfs-tools-core klibc-utils kmod
+
   # Miscellaneous cleanup
   rm -rf /var/lib/apt/lists/* || true
   rm -f /root/* || true

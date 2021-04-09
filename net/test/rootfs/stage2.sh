@@ -53,3 +53,11 @@ mkdir -p /var/empty
 rm -rf /root/stage2.sh /tmp/*
 find /var/log -type f -exec rm -f '{}' ';'
 find /var/tmp -type f -exec rm -f '{}' ';'
+
+# Create an empty initramfs to be combined with modules later
+sed -i 's,^COMPRESS=gzip,COMPRESS=lz4,' /etc/initramfs-tools/initramfs.conf
+mkdir -p /lib/modules/0.0
+depmod -a 0.0
+update-initramfs -c -k 0.0
+mv /boot/initrd.img-0.0 /boot/initrd.img
+rm -rf /lib/modules/0.0
