@@ -43,6 +43,12 @@ ln -sf ../proc/self/mounts /etc/mtab
 echo "127.0.1.1       debian" >>/etc/hosts
 echo debian >/etc/hostname
 
+# Support chroot jailing with minijail
+cat >/etc/sysctl.d/80-nsjail.conf <<EOF
+kernel.unprivileged_userns_clone=1
+EOF
+mkdir -p /var/empty
+
 # Clean up any other junk created by the imaging process
 rm -rf /root/stage2.sh /tmp/*
 find /var/log -type f -exec rm -f '{}' ';'
