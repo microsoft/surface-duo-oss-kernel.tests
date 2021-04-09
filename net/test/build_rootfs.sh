@@ -34,7 +34,6 @@ usage() {
 }
 
 mirror=http://ftp.debian.org/debian
-debootstrap=debootstrap
 suite=bullseye
 arch=amd64
 
@@ -82,11 +81,6 @@ if [[ -z "${name}" ]]; then
   name="net_test.rootfs.${arch}.${suite}.$(date +%Y%m%d)"
 fi
 
-# Switch to qemu-debootstrap for incompatible architectures
-if [ "${arch}" = "arm64" ]; then
-  debootstrap=qemu-debootstrap
-fi
-
 # Sometimes it isn't obvious when the script fails
 failure() {
   echo "Filesystem generation process failed." >&2
@@ -111,19 +105,25 @@ sudo chown root:root "${workdir}"
 
 # Run the debootstrap first
 cd "${workdir}"
-sudo "${debootstrap}" --arch="${arch}" --variant=minbase --include="${packages}" \
-                      "${suite}" . "${mirror}"
+sudo debootstrap --arch="${arch}" --variant=minbase --include="${packages}" \
+                 --foreign "${suite}" . "${mirror}"
+
+# Copy some bootstrapping scripts into the rootfs
+sudo cp -a "${SCRIPT_DIR}"/rootfs/*.sh root/
+sudo cp -a "${SCRIPT_DIR}"/rootfs/net_test.sh sbin/net_test.sh
+sudo chown -R root:root root/ sbin/net_test.sh
+
+# Create /host, for the pivot_root and 9p mount use cases
+sudo mkdir host
+
+sudo chroot . root/stage2.sh
+sudo chroot . root/${suite}.sh
+
 # Workarounds for bugs in the debootstrap suite scripts
 for mount in $(cat /proc/mounts | cut -d' ' -f2 | grep -e "^${workdir}"); do
   echo "Unmounting mountpoint ${mount}.." >&2
   sudo umount "${mount}"
 done
-# Copy the chroot preparation scripts, and enter the chroot
-for file in "${suite}.sh" common.sh net_test.sh; do
-  sudo cp -a "${SCRIPT_DIR}/rootfs/${file}" "root/${file}"
-  sudo chown root:root "root/${file}"
-done
-sudo chroot . "/root/${suite}.sh"
 
 # Leave the workdir, to build the filesystem
 cd -
