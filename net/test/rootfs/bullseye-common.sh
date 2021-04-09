@@ -89,5 +89,16 @@ install_and_cleanup_iptables() {
 }
 
 bullseye_cleanup() {
+  # SELinux is supported by our kernels, but we don't install the policy files
+  # which causes an error to be printed by systemd. Disable selinux.
+  echo "SELINUX=disabled" >/etc/selinux/config
+
+  # Switch binfmt misc over to a static mount, to avoid an autofs4 dependency
+  systemctl mask proc-sys-fs-binfmt_misc.automount
+  systemctl enable proc-sys-fs-binfmt_misc.mount
+
+  # This package gets pulled in as a phantom dependency. Remove it
+  apt-get purge -y gcc-9-base
+
   cleanup
 }
