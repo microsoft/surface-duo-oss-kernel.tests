@@ -39,7 +39,8 @@ EOF
   ln -sf ../proc/self/mounts /etc/mtab
 
   # Remove contaminants coming from the debootstrap process
-  echo vm >/etc/hostname
+  echo "127.0.1.1       debian" >>/etc/hosts
+  echo debian >/etc/hostname
   echo "nameserver 127.0.0.1" >/etc/resolv.conf
 
   # Put the helper net_test.sh script into place
