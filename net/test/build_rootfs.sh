@@ -46,7 +46,7 @@ while getopts ":hs:a:m:n:r:" opt; do
       usage
       ;;
     s)
-      if [[ "${OPTARG}" != "bullseye" ]]; then
+      if [[ "${OPTARG%-*}" != "bullseye" ]]; then
         echo "Invalid suite: ${OPTARG}" >&2
         usage
       fi
@@ -101,7 +101,7 @@ failure() {
 trap failure ERR
 
 # Import the package list for this release
-packages=$(cat "${SCRIPT_DIR}/rootfs/${suite}.list" | xargs | tr -s ' ' ',')
+packages=$(cpp "${SCRIPT_DIR}/rootfs/${suite}.list" | grep -v "^#" | xargs | tr -s ' ' ',')
 
 # For the debootstrap intermediates
 tmpdir=$(mktemp -d)
@@ -119,7 +119,7 @@ sudo chown root:root "${workdir}"
 # Run the debootstrap first
 cd "${workdir}"
 sudo debootstrap --arch="${arch}" --variant=minbase --include="${packages}" \
-                 --foreign "${suite}" . "${mirror}"
+                 --foreign "${suite%-*}" . "${mirror}"
 
 # Copy some bootstrapping scripts into the rootfs
 sudo cp -a "${SCRIPT_DIR}"/rootfs/*.sh root/
