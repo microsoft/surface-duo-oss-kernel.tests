@@ -108,7 +108,7 @@ nowrite=1
 nobuild=0
 norun=0
 
-if [[ -z "${DEFCONFIG}" ]]; then
+if [[ -z "${DEFCONFIG:-}" ]]; then
   case "${ARCH}" in
     um)
       export DEFCONFIG=defconfig
@@ -245,7 +245,7 @@ if (( $NUMTAPINTERFACES > 0 )); then
   done
 fi
 
-if [ -n "$KERNEL_BINARY" ]; then
+if [[ -n "${KERNEL_BINARY:-}" ]]; then
   nobuild=1
 else
   # Set default KERNEL_BINARY location if it was not provided.
@@ -265,7 +265,7 @@ if ((nobuild == 0)); then
     # "sometimes" (?) results in a 32-bit kernel.
     make_flags="$make_flags ARCH=$ARCH SUBARCH=${SUBARCH:-x86_64} CROSS_COMPILE= "
   fi
-  if [ -n "$CC" ]; then
+  if [[ -n "${CC:-}" ]]; then
     # The CC flag is *not* inherited from the environment, so it must be
     # passed in on the command line.
     make_flags="$make_flags CC=$CC"
@@ -280,12 +280,15 @@ if ((nobuild == 0)); then
   # Disable the kernel config options listed in $DISABLE_OPTIONS.
   $CONFIG_SCRIPT --file $CONFIG_FILE ${DISABLE_OPTIONS// / -d }
 
+  echo "Running: $MAKE $make_flags olddefconfig"
   $MAKE $make_flags olddefconfig
 
   # Compile the kernel.
   if [ "$ARCH" == "um" ]; then
+    echo "Running: $MAKE -j$J $make_flags linux"
     $MAKE -j$J $make_flags linux
   else
+    echo "Running: $MAKE -j$J $make_flags"
     $MAKE -j$J $make_flags
   fi
 fi
