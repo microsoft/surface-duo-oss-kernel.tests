@@ -23,7 +23,7 @@ class SysctlsTest(net_test.NetworkTest):
 
   def check(self, f):
     algs = open(f).readline().strip().split(' ')
-    bad_algs = [a for a in algs if a not in ['bbr', 'bbr2', 'cubic', 'reno']]
+    bad_algs = [a for a in algs if a not in ['cubic', 'reno']]
     msg = ("Obsolete TCP congestion control algorithm found. These "
            "algorithms will decrease real-world networking performance for "
            "users and must be disabled. Found: %s" % bad_algs)
