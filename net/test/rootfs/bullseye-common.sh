@@ -83,6 +83,7 @@ install_and_cleanup_iptables() {
     for package in $packages; do
       echo "$package hold" | LANG=C dpkg --set-selections
     done
+    update-alternatives --set iptables /usr/sbin/iptables-legacy
 
     # Tidy up the mess we left behind, leaving just the source tarballs
     rm -rf $iptables *.{buildinfo,changes,deb,dsc}
