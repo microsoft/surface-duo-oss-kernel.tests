@@ -9,6 +9,7 @@ ifupdown
 insserv
 iputils-ping
 iptables
+isc-dhcp-client
 less
 libnetfilter-conntrack3
 libnfnetlink0
@@ -21,14 +22,12 @@ openssl
 pciutils
 procps
 psmisc
-python
+python2
 python3-scapy
 strace
 systemd-sysv
 tcpdump
 traceroute
 udev
-udhcpc
-usbutils
 vim-tiny
 wget
