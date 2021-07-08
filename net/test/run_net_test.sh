@@ -330,7 +330,7 @@ if [ "$ARCH" == "um" ]; then
   # We'd use UML's /proc/exitcode feature to communicate errors on test failure,
   # if not for UML having a tendency to crash during shutdown,
   # so instead use an extra serial line we'll redirect to an open fd...
-  cmdline="$cmdline net_test_exitcode=/dev/ttyS3"
+  cmdline="$cmdline exitcode=/dev/ttyS3"
 
   # Map the --readonly flag to UML block device names
   if ((nowrite == 0)); then
@@ -425,7 +425,7 @@ else
 
     # The assignment of 'ttyS1' here is magical; we know ttyS0 was used up
     # by '-serial mon:stdio', and so this second serial port will be 'ttyS1'
-    cmdline="$cmdline net_test_exitcode=/dev/ttyS1"
+    cmdline="$cmdline exitcode=/dev/ttyS1"
   elif [ "$ARCH" == "arm64" ]; then
     # This uses a software model CPU, based on cortex-a57
     qemu="qemu-system-aarch64 -machine virt -cpu cortex-a57"
@@ -437,7 +437,7 @@ else
     # The kernel will print messages via a virtual ARM serial port (ttyAMA0),
     # but for command line consistency with x86, we put the exitcode serial
     # port on the PCI bus, and it will be the only one.
-    cmdline="$cmdline net_test_exitcode=/dev/ttyS0"
+    cmdline="$cmdline exitcode=/dev/ttyS0"
   fi
 
   $qemu >&2 -name net_test -m 512 \
