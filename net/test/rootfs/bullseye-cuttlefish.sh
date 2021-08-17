@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# Copyright (C) 2018 The Android Open Source Project
+# Copyright (C) 2021 The Android Open Source Project
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -22,19 +22,29 @@ SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd -P)
 
 . $SCRIPT_DIR/bullseye-common.sh
 
-setup_static_networking
+setup_dynamic_networking "eth0" "br0"
 
 update_apt_sources bullseye
 
-# Disable the root password
-passwd -d root
+setup_cuttlefish_user
 
 get_installed_packages >/root/originally-installed
+
+setup_and_build_cuttlefish
 setup_and_build_iptables
+
 get_installed_packages >/root/installed
+
 remove_installed_packages /root/originally-installed /root/installed
+
+install_and_cleanup_cuttlefish
+sed -i "s,^#\(bridge_interface=\),\1br0," /etc/default/cuttlefish-common
+
 install_and_cleanup_iptables
 
-create_systemd_getty_symlinks ttyS0
+create_systemd_getty_symlinks ttyS0 hvc1
 
+setup_grub "net.ifnames=0"
+
+apt-get purge -y vim-tiny
 bullseye_cleanup
