@@ -3,9 +3,11 @@ apt-utils
 bash-completion
 bsdmainutils
 ca-certificates
+e2fsprogs
 file
 gpgv
 ifupdown
+initramfs-tools
 insserv
 iputils-ping
 iptables
@@ -13,6 +15,7 @@ isc-dhcp-client
 less
 libnetfilter-conntrack3
 libnfnetlink0
+lz4
 mime-support
 netbase
 netcat-openbsd
