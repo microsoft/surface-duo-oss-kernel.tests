@@ -347,6 +347,11 @@ if [ "$ARCH" == "um" ]; then
     $blockdevice=$ROOTFS $netconfig $consolemode ssl3=null,fd:3 $cmdline \
   || exitcode=$?
 
+  # Return to beginning of line (via carriage return) after the above newline moved us down.
+  echo -en '\r'
+  # re-enable: 'postprocess output' and 'translate newline to carriage return-newline'
+  stty opost onlcr || :
+
   if [[ "${exitcode}" == 134 && -s "${SSL3}" && "$(tr -d '\r' < "${SSL3}")" == 0 ]]; then
     # Sometimes the tests all pass, but UML crashes during the shutdown process itself.
     # As such we can't actually rely on the /proc/exitcode returned value.
