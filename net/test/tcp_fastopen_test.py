@@ -28,6 +28,7 @@ import tcp_metrics
 
 TCPOPT_FASTOPEN = 34
 TCP_FASTOPEN_CONNECT = 30
+BH_TIMEOUT_SYSCTL = "/proc/sys/net/ipv4/tcp_fastopen_blackhole_timeout_sec"
 
 
 class TcpFastOpenTest(multinetwork_base.MultiNetworkBaseTest):
@@ -63,12 +64,21 @@ class TcpFastOpenTest(multinetwork_base.MultiNetworkBaseTest):
     with self.assertRaisesErrno(ENOENT):
       self.tcp_metrics.GetMetrics(saddr, daddr)
 
+  def clearBlackhole(self):
+    if net_test.LINUX_VERSION < (4, 14, 0):
+      return
+    timeout = self.GetSysctl(BH_TIMEOUT_SYSCTL)
+
+    # Write to timeout to clear any pre-existing blackhole condition
+    self.SetSysctl(BH_TIMEOUT_SYSCTL, timeout)
+
   def CheckConnectOption(self, version):
     ip_layer = {4: scapy.IP, 6: scapy.IPv6}[version]
     netid = self.RandomNetid()
     s = self.TFOClientSocket(version, netid)
 
     self.clearTcpMetrics(version, netid)
+    self.clearBlackhole()
 
     # Connect the first time.
     remoteaddr = self.GetRemoteAddress(version)
